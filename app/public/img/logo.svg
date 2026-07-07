@@ -1,0 +1,25 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ewGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d8b34a"/>
+      <stop offset="100%" stop-color="#8a6414"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="96" fill="#ffffff" stroke="#161616" stroke-width="2"/>
+  <text x="100" y="60" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="27" fill="url(#ewGold)" letter-spacing="1">ENERGY</text>
+  <text x="100" y="90" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="27" fill="url(#ewGold)" letter-spacing="1">WOMAN</text>
+
+  <g fill="url(#ewGold)">
+    <circle cx="63" cy="111" r="5.5"/>
+    <path d="M63 117 C 57 122, 56 132, 58 143 C 59 151, 57 159, 55 169 L 61 169 C 63 161, 64 152, 65 145 C 67 152, 68 161, 70 169 L 76 169 C 74 159, 72 151, 73 143 C 75 132, 69 122, 63 117 Z"/>
+  </g>
+
+  <g fill="url(#ewGold)">
+    <rect x="86" y="106" width="42" height="63" rx="6"/>
+    <rect x="94" y="113" width="26" height="21" rx="2" fill="#ffffff"/>
+    <rect x="81" y="167" width="52" height="6" rx="2"/>
+    <path d="M128 116 C 141 116, 144 126, 140 133 L 133 129 C 135 125, 134 121, 128 121 Z"/>
+    <path d="M134 130 C 140 138, 142 149, 137 157 C 135 160, 130 162, 126 159" stroke="url(#ewGold)" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+    <rect x="121" y="155" width="11" height="8" rx="2" transform="rotate(22 126 159)"/>
+  </g>
+</svg>

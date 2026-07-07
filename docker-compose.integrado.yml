@@ -1,0 +1,60 @@
+# Variante para cuando el VPS YA tiene un Caddy propio corriendo (en modo --network host,
+# como en este caso) que atiende otros dominios. Acá NO levantamos Caddy propio: la app
+# publica su puerto solo en localhost, y el Caddy existente la alcanza directo (por estar
+# en modo host) agregando un bloque nuevo a su Caddyfile (ver instrucciones abajo).
+#
+# Uso:
+#   docker compose -f docker-compose.integrado.yml -p gasolinera up -d --build
+#
+# Bajarlo (sin afectar el Caddy ni otros proyectos del VPS):
+#   docker compose -f docker-compose.integrado.yml -p gasolinera down
+
+name: gasolinera-app
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      TZ: America/Santiago
+      POSTGRES_USER: ${DB_USER:-gasolinera}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
+      POSTGRES_DB: ${DB_NAME:-gasolinera}
+    ports:
+      # Solo en localhost: permite conectarse con un gestor de base de datos (ej. DBeaver)
+      # vía túnel SSH, sin exponer Postgres a internet.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gasolinera}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: America/Santiago
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-gasolinera}
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
+      DB_NAME: ${DB_NAME:-gasolinera}
+      JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET en .env}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?falta ADMIN_PASSWORD en .env}
+      PORT: 3000
+    ports:
+      # Solo en localhost: nadie desde internet llega directo acá, solo el Caddy
+      # existente del VPS (que puede alcanzar localhost por correr en modo host).
+      - "127.0.0.1:${PUERTO_LOCAL:-3001}:3000"
+
+volumes:
+  db_data:

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Panel administrador - Energy Woman</title>
+<link rel="stylesheet" href="/css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <img src="/img/logo.svg" alt="Energy Woman" style="height:38px; width:38px; border-radius:50%; flex-shrink:0;">
+      <div>
+        <div class="marca-nombre">ENERGY WOMAN</div>
+        <div class="marca-sub">Panel administrador</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <button data-tab="reportes" class="activo" onclick="cambiarTab('reportes')">Reportes</button>
+      <button data-tab="historial" onclick="cambiarTab('historial')">Historial</button>
+      <button data-tab="socios" onclick="cambiarTab('socios')">Socios</button>
+      <button data-tab="bomberos" onclick="cambiarTab('bomberos')">Usuarios</button>
+      <button data-tab="reglas" onclick="cambiarTab('reglas')">Reglas de descuento</button>
+      <button data-tab="precios" onclick="cambiarTab('precios')">Precios</button>
+    </nav>
+    <button class="sidebar-logout" onclick="Api.cerrarSesion()">Cerrar sesión</button>
+  </aside>
+
+  <div class="contenedor">
+    <div id="tab-reportes" class="tab-contenido"></div>
+    <div id="tab-historial" class="tab-contenido oculto"></div>
+    <div id="tab-socios" class="tab-contenido oculto"></div>
+    <div id="tab-bomberos" class="tab-contenido oculto"></div>
+    <div id="tab-reglas" class="tab-contenido oculto"></div>
+    <div id="tab-precios" class="tab-contenido oculto"></div>
+  </div>
+</div>
+
+<div id="modalContenedor"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/admin.js"></script>
+</body>
+</html>

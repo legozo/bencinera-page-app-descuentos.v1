@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Energy Woman - Iniciar sesión</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="contenedor" style="max-width:400px; margin-top:60px;">
+  <div style="display:flex; flex-direction:column; align-items:center; gap:8px; margin-bottom:18px;">
+    <img src="/img/logo.svg" alt="Energy Woman" style="height:72px; width:72px; border-radius:50%;">
+    <div style="font-weight:700; letter-spacing:.5px; color:var(--negro);">ENERGY WOMAN</div>
+  </div>
+  <div class="tarjeta">
+    <h2 style="text-align:center; color:var(--azul);">Descuentos Bencinera</h2>
+    <form id="formLogin" onsubmit="return false;">
+      <label for="usuario">Usuario</label>
+      <input id="usuario" type="text" required autofocus>
+      <label for="password">Clave</label>
+      <input id="password" type="password" required>
+      <button class="primario" style="width:100%;" type="button" id="btnLogin">Iniciar sesión</button>
+    </form>
+    <div id="error" class="mensaje-error oculto"></div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+// Usamos un botón type="button" con su propio click (en vez de depender del evento
+// "submit" del formulario) porque en algunos navegadores ese evento no llegaba a
+// dispararse de forma confiable (quedaba haciendo un envío nativo del formulario en vez
+// de correr este código) — este enfoque no depende en absoluto del comportamiento nativo
+// de envío de formularios, así que no puede volver a pasar.
+async function intentarLogin() {
+  const errorDiv = document.getElementById("error");
+  errorDiv.classList.add("oculto");
+  const usuario = document.getElementById("usuario").value.trim();
+  const password = document.getElementById("password").value;
+  if (!usuario || !password) {
+    errorDiv.textContent = "Usuario y clave son obligatorios.";
+    errorDiv.classList.remove("oculto");
+    return;
+  }
+  try {
+    const data = await Api.post("/auth/login", { usuario, password });
+    Api.guardarSesion(data.token, data.usuario);
+    window.location.href = data.usuario.rol === "admin" ? "/admin.html" : "/bombero.html";
+  } catch (err) {
+    errorDiv.textContent = err.message;
+    errorDiv.classList.remove("oculto");
+  }
+}
+
+document.getElementById("btnLogin").addEventListener("click", intentarLogin);
+document.getElementById("password").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") intentarLogin();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Energy Woman - Registro de descuento</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="marca">
+    <img src="/img/logo.svg" alt="Energy Woman" style="height:28px; width:28px; border-radius:50%; flex-shrink:0;">
+    <h1 id="tituloUsuario">Bencinera</h1>
+  </div>
+  <button onclick="Api.cerrarSesion()">Cerrar sesión</button>
+</header>
+
+<div class="contenedor" style="max-width:480px;">
+  <div id="estadoConexion" class="chico" style="margin-bottom:10px;"></div>
+
+  <div class="tarjeta">
+    <label for="rut">RUT del cliente</label>
+    <input id="rut" type="text" placeholder="12345678-9" autofocus>
+    <button class="primario" style="width:100%;" onclick="buscarSocio()">Consultar</button>
+    <div id="errorBusqueda" class="mensaje-error oculto"></div>
+  </div>
+
+  <div id="resultado" class="tarjeta oculto"></div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/rut-client.js"></script>
+<script src="/js/offline.js"></script>
+<script src="/js/bombero.js"></script>
+</body>
+</html>

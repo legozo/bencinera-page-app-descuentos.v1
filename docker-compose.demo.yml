@@ -1,0 +1,56 @@
+# Variante para PROBAR en un VPS que no es tuyo y que ya tiene otro docker-compose corriendo.
+# Diferencias frente a docker-compose.yml (producción):
+#   - No incluye Caddy: no toca los puertos 80/443, que probablemente ya están en uso.
+#   - No requiere dominio ni HTTPS: se accede directo por http://IP-DEL-VPS:PUERTO_DEMO
+#   - La base de datos NO se expone al host (solo es visible dentro de esta red de compose),
+#     así que no puede chocar con otro Postgres que ya exista en la VPS.
+#
+# Úsalo con un nombre de proyecto propio para no mezclarte con los contenedores que ya
+# están corriendo en esa VPS:
+#
+#   docker compose -p gasolinera-demo -f docker-compose.demo.yml up -d --build
+#
+# Para bajarlo (sin afectar nada más de la VPS):
+#
+#   docker compose -p gasolinera-demo -f docker-compose.demo.yml down
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-gasolinera}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
+      POSTGRES_DB: ${DB_NAME:-gasolinera}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gasolinera}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-gasolinera}
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en .env}
+      DB_NAME: ${DB_NAME:-gasolinera}
+      JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET en .env}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?falta ADMIN_PASSWORD en .env}
+      PORT: 3000
+    ports:
+      # Cambia el primer número si 8080 ya está ocupado en esa VPS (revisa con: docker ps).
+      - "${PUERTO_DEMO:-8080}:3000"
+
+volumes:
+  db_data:
