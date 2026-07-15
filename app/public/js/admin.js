@@ -77,7 +77,7 @@ function pedirTexto(mensaje, titulo = "Ingresa un valor", opciones = {}) {
         <div class="modal">
           <h3>${titulo}</h3>
           <p style="margin-bottom:10px;">${mensaje}</p>
-          <input id="modalInputTexto" type="${tipo}" autofocus>
+          <input id="modalInputTexto" type="${tipo}" value="${(opciones.valorInicial || "").replace(/"/g, "&quot;")}" autofocus>
           <div id="modalInputError" class="mensaje-error oculto" style="margin-top:10px;"></div>
           <div class="modal-botones">
             <button class="secundario" id="modalCancelar">Cancelar</button>
@@ -86,6 +86,7 @@ function pedirTexto(mensaje, titulo = "Ingresa un valor", opciones = {}) {
         </div>
       </div>`;
     const input = document.getElementById("modalInputTexto");
+    if (opciones.valorInicial) input.select();
     const errorDiv = document.getElementById("modalInputError");
     const cerrar = (valor) => { cont.innerHTML = ""; resolve(valor); };
     const confirmar = () => {
@@ -189,6 +190,13 @@ function agruparDetallePorSucursal(detalle) {
   return grupos;
 }
 
+/** Suma los litros del detalle (que viene por sucursal + combustible) agrupados solo por combustible. */
+function litrosPorCombustible(detalle) {
+  const indice = {};
+  detalle.forEach((r) => { indice[r.combustible] = (indice[r.combustible] || 0) + Number(r.litros); });
+  return Object.entries(indice).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
 function subtotalGrupo(filas) {
   return filas.reduce(
     (acc, r) => ({
@@ -221,15 +229,17 @@ async function buscarReportes() {
   // de dónde salía cada total. Ahora es una sola tabla: sucursal + combustible en cada
   // fila, con un subtotal por sucursal, para ver la trazabilidad completa.
   const grupos = agruparDetallePorSucursal(data.detalle);
+  const litrosCombustible = litrosPorCombustible(data.detalle);
 
   cont.innerHTML = `
     <div class="tarjeta">
       <p class="chico">${rangoTexto}</p>
       <h3>Totales</h3>
       <p>Transacciones: <strong>${data.totales.transacciones}</strong> —
-         Litros: <strong>${fmt(data.totales.litros)}</strong> —
+         Litros totales: <strong>${fmt(data.totales.litros)}</strong> —
          Descuento otorgado: <strong>$${fmt(data.totales.descuento_total)}</strong> —
          Total cobrado: <strong>$${fmt(data.totales.monto_total)}</strong></p>
+      <p class="chico">Litros por combustible: ${litrosCombustible.map(([c, l]) => `${c}: <strong>${fmt(l)}</strong>`).join(" — ") || "Sin datos"}</p>
       <button class="secundario" style="margin-top:10px;" onclick="exportarReporteCSV()">Exportar a Excel</button>
     </div>
     <div class="tarjeta">
@@ -265,13 +275,18 @@ function exportarReporteCSV() {
 
   const { totales, detalle, rangoTexto } = ultimoReporte;
   const grupos = agruparDetallePorSucursal(detalle);
+  const litrosCombustible = litrosPorCombustible(detalle);
 
   const lineas = [];
   lineas.push(filaCsv([rangoTexto]));
   lineas.push("");
   lineas.push(filaCsv(["Totales"]));
-  lineas.push(filaCsv(["Transacciones", "Litros", "Descuento total", "Total cobrado"]));
+  lineas.push(filaCsv(["Transacciones", "Litros totales", "Descuento total", "Total cobrado"]));
   lineas.push(filaCsv([totales.transacciones, totales.litros, totales.descuento_total, totales.monto_total]));
+  lineas.push("");
+  lineas.push(filaCsv(["Litros por combustible"]));
+  lineas.push(filaCsv(["Combustible", "Litros"]));
+  litrosCombustible.forEach(([c, l]) => lineas.push(filaCsv([c, l])));
   lineas.push("");
   lineas.push(filaCsv(["Detalle por sucursal y combustible"]));
   lineas.push(filaCsv(["Sucursal", "Combustible", "Litros", "Descuento", "Total cobrado"]));
@@ -474,6 +489,9 @@ async function exportarHistorialCSV() {
 }
 
 // ---------- Socios ----------
+let ultimosSocios = []; // guarda la última lista cargada para poder prellenar el formulario al editar
+let socioEditandoId = null; // id del socio en edición, o null si el formulario está en modo "agregar"
+
 async function cargarSocios() {
   const cont = document.getElementById("tab-socios");
   await cargarCatalogos();
@@ -484,6 +502,7 @@ async function cargarSocios() {
     <div class="tarjeta">
       <button class="secundario" onclick="toggleFormSocio()">+ Agregar socio</button>
       <div id="formSocio" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc;">
+        <h3 id="formSocioTitulo" style="margin-top:0;">Agregar socio nuevo</h3>
         <div class="grid-2">
           <div><label>RUT (con dígito verificador)</label><input id="nSocioRut" placeholder="12345678-9"></div>
           <div>
@@ -518,14 +537,36 @@ function toggleFormSocio() {
   div.classList.toggle("oculto");
   if (div.classList.contains("oculto")) {
     document.getElementById("nSocioRut").value = "";
+    document.getElementById("nSocioRut").disabled = false;
     document.getElementById("nSocioNombre").value = "";
     document.getElementById("nSocioApellido").value = "";
     document.getElementById("nSocioTelefono").value = "";
     document.getElementById("nSocioDireccion").value = "";
     document.getElementById("errorSocio").classList.add("oculto");
+    document.getElementById("formSocioTitulo").textContent = "Agregar socio nuevo";
+    socioEditandoId = null;
   } else {
     mostrarDescripcionTipoSocio();
   }
+}
+
+/** Abre el formulario prellenado con los datos de un socio existente, para editarlo (el RUT no se puede cambiar). */
+function editarSocio(id) {
+  const s = ultimosSocios.find((x) => x.id === id);
+  if (!s) return;
+  socioEditandoId = id;
+  document.getElementById("formSocio").classList.remove("oculto");
+  document.getElementById("formSocioTitulo").textContent = "Editar socio";
+  document.getElementById("nSocioRut").value = `${s.rut}-${s.dv}`;
+  document.getElementById("nSocioRut").disabled = true;
+  document.getElementById("nSocioTipo").value = s.tipo_socio_id;
+  document.getElementById("nSocioNombre").value = s.nombre;
+  document.getElementById("nSocioApellido").value = s.apellido || "";
+  document.getElementById("nSocioTelefono").value = s.telefono || "";
+  document.getElementById("nSocioDireccion").value = s.direccion || "";
+  document.getElementById("errorSocio").classList.add("oculto");
+  mostrarDescripcionTipoSocio();
+  document.getElementById("formSocio").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /** Muestra debajo del selector la descripción (si tiene) del tipo de socio elegido. */
@@ -539,34 +580,43 @@ function mostrarDescripcionTipoSocio() {
 async function buscarSociosLista() {
   const q = document.getElementById("buscarSocioInput").value.trim();
   const rows = await Api.get(`/socios${q ? "?q=" + encodeURIComponent(q) : ""}`);
+  ultimosSocios = rows;
   document.getElementById("tablaSocios").innerHTML = `
     <table>
-      <tr><th>RUT</th><th>Nombre</th><th>Tipo</th><th>Activo</th><th>Registro</th><th></th><th></th></tr>
+      <tr><th>RUT</th><th>Nombre</th><th>Teléfono</th><th>Dirección</th><th>Tipo</th><th>Activo</th><th>Registro</th><th></th><th></th><th></th></tr>
       ${rows.map((s) => `
         <tr>
           <td data-etiqueta="RUT">${s.rut}-${s.dv}</td>
           <td data-etiqueta="Nombre">${s.nombre} ${s.apellido || ""}</td>
+          <td data-etiqueta="Teléfono">${s.telefono || "-"}</td>
+          <td data-etiqueta="Dirección">${s.direccion || "-"}</td>
           <td data-etiqueta="Tipo">${s.tipo_socio_nombre}</td>
           <td data-etiqueta="Activo">${s.activo ? "Sí" : "No"}</td>
           <td data-etiqueta="Registro">${new Date(s.fecha_registro).toLocaleDateString("es-CL")}</td>
+          <td><button class="secundario" onclick="editarSocio(${s.id})">Editar</button></td>
           <td><button class="secundario" onclick="toggleActivoSocio(${s.id}, ${!s.activo})">${s.activo ? "Desactivar" : "Activar"}</button></td>
           <td><button class="secundario" style="color:#c0392b; border-color:#c0392b;" onclick="eliminarSocio(${s.id}, '${(s.nombre + " " + (s.apellido || "")).replace(/'/g, "\\'").trim()}')">Eliminar</button></td>
-        </tr>`).join("") || '<tr><td colspan="7">Sin resultados</td></tr>'}
+        </tr>`).join("") || '<tr><td colspan="10">Sin resultados</td></tr>'}
     </table>`;
 }
 
 async function crearSocio() {
   const errorDiv = document.getElementById("errorSocio");
   errorDiv.classList.add("oculto");
+  const datos = {
+    rut: document.getElementById("nSocioRut").value.trim(),
+    tipo_socio_id: Number(document.getElementById("nSocioTipo").value),
+    nombre: document.getElementById("nSocioNombre").value.trim(),
+    apellido: document.getElementById("nSocioApellido").value.trim(),
+    telefono: document.getElementById("nSocioTelefono").value.trim(),
+    direccion: document.getElementById("nSocioDireccion").value.trim(),
+  };
   try {
-    await Api.post("/socios", {
-      rut: document.getElementById("nSocioRut").value.trim(),
-      tipo_socio_id: Number(document.getElementById("nSocioTipo").value),
-      nombre: document.getElementById("nSocioNombre").value.trim(),
-      apellido: document.getElementById("nSocioApellido").value.trim(),
-      telefono: document.getElementById("nSocioTelefono").value.trim(),
-      direccion: document.getElementById("nSocioDireccion").value.trim(),
-    });
+    if (socioEditandoId) {
+      await Api.put(`/socios/${socioEditandoId}`, datos);
+    } else {
+      await Api.post("/socios", datos);
+    }
     toggleFormSocio(); // colapsa el formulario y limpia los campos
     buscarSociosLista();
   } catch (err) {
@@ -592,6 +642,9 @@ async function eliminarSocio(id, nombre) {
 }
 
 // ---------- Bomberos ----------
+let ultimosUsuarios = []; // guarda la última lista cargada para poder prellenar el formulario al editar
+let usuarioEditandoId = null; // id del usuario en edición, o null si el formulario está en modo "agregar"
+
 async function cargarBomberos() {
   const cont = document.getElementById("tab-bomberos");
   await cargarCatalogos();
@@ -600,11 +653,12 @@ async function cargarBomberos() {
     <div class="tarjeta">
       <button class="secundario" onclick="toggleFormUsuario()">+ Agregar usuario</button>
       <div id="formUsuario" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc;">
+        <h3 id="formUsuarioTitulo" style="margin-top:0;">Agregar usuario nuevo</h3>
         <div class="grid-2">
           <div><label>Nombre</label><input id="nUserNombre"></div>
           <div><label>Apellido</label><input id="nUserApellido"></div>
           <div><label>Usuario (login)</label><input id="nUserLogin"></div>
-          <div><label>Clave</label><input id="nUserClave" type="password"></div>
+          <div><label id="nUserClaveLabel">Clave</label><input id="nUserClave" type="password"></div>
           <div><label>Rol</label>
             <select id="nUserRol" onchange="document.getElementById('bloqueSucursal').classList.toggle('oculto', this.value==='admin')">
               <option value="bombero">Bombero</option>
@@ -633,25 +687,63 @@ function toggleFormUsuario() {
     document.getElementById("nUserNombre").value = "";
     document.getElementById("nUserApellido").value = "";
     document.getElementById("nUserLogin").value = "";
+    document.getElementById("nUserLogin").disabled = false;
     document.getElementById("nUserClave").value = "";
+    document.getElementById("nUserClave").disabled = false;
+    document.getElementById("nUserClaveLabel").textContent = "Clave";
+    document.getElementById("nUserRol").value = "bombero";
+    document.getElementById("nUserRol").disabled = false;
+    document.getElementById("bloqueSucursal").classList.remove("oculto");
     document.getElementById("nUserTelefono").value = "";
     document.getElementById("errorUsuario").classList.add("oculto");
+    document.getElementById("formUsuarioTitulo").textContent = "Agregar usuario nuevo";
+    usuarioEditandoId = null;
   }
+}
+
+/**
+ * Abre el formulario prellenado con los datos de un usuario existente, para editarlo. El
+ * "Usuario (login)" y el "Rol" no se pueden cambiar (el backend no lo permite); la clave se
+ * deja para el botón "Cambiar clave" de la tabla, no se toca desde este formulario.
+ */
+function editarUsuario(id) {
+  const u = ultimosUsuarios.find((x) => x.id === id);
+  if (!u) return;
+  usuarioEditandoId = id;
+  document.getElementById("formUsuario").classList.remove("oculto");
+  document.getElementById("formUsuarioTitulo").textContent = "Editar usuario";
+  document.getElementById("nUserNombre").value = u.nombre;
+  document.getElementById("nUserApellido").value = u.apellido || "";
+  document.getElementById("nUserLogin").value = u.usuario;
+  document.getElementById("nUserLogin").disabled = true;
+  document.getElementById("nUserClave").value = "";
+  document.getElementById("nUserClave").disabled = true;
+  document.getElementById("nUserClaveLabel").textContent = "Clave (usa \"Cambiar clave\" en la tabla)";
+  document.getElementById("nUserRol").value = u.rol;
+  document.getElementById("nUserRol").disabled = true;
+  document.getElementById("bloqueSucursal").classList.toggle("oculto", u.rol === "admin");
+  document.getElementById("nUserSucursal").value = u.sucursal_id || "";
+  document.getElementById("nUserTelefono").value = u.telefono || "";
+  document.getElementById("errorUsuario").classList.add("oculto");
+  document.getElementById("formUsuario").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function listarUsuarios() {
   const rows = await Api.get("/usuarios");
+  ultimosUsuarios = rows;
   document.getElementById("tablaUsuarios").innerHTML = `
     <table>
-      <tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Sucursal</th><th>Activo</th><th>Creado</th><th></th><th></th><th></th></tr>
+      <tr><th>Nombre</th><th>Usuario</th><th>Teléfono</th><th>Rol</th><th>Sucursal</th><th>Activo</th><th>Creado</th><th></th><th></th><th></th><th></th></tr>
       ${rows.map((u) => `
         <tr>
           <td data-etiqueta="Nombre">${u.nombre} ${u.apellido || ""}</td>
           <td data-etiqueta="Usuario">${u.usuario}</td>
+          <td data-etiqueta="Teléfono">${u.telefono || "-"}</td>
           <td data-etiqueta="Rol">${u.rol}</td>
           <td data-etiqueta="Sucursal">${u.sucursal_nombre || "-"}</td>
           <td data-etiqueta="Activo">${u.activo ? "Sí" : "No"}</td>
           <td data-etiqueta="Creado">${new Date(u.creado_en).toLocaleDateString("es-CL")}</td>
+          <td><button class="secundario" onclick="editarUsuario(${u.id})">Editar</button></td>
           <td><button class="secundario" onclick="cambiarClaveUsuario(${u.id}, '${(u.nombre + " " + (u.apellido || "")).replace(/'/g, "\\'").trim()}')">Cambiar clave</button></td>
           <td><button class="secundario" onclick="toggleActivoUsuario(${u.id}, ${!u.activo})">${u.activo ? "Desactivar" : "Activar"}</button></td>
           <td><button class="secundario" style="color:#c0392b; border-color:#c0392b;" onclick="eliminarUsuario(${u.id}, '${(u.nombre + " " + (u.apellido || "")).replace(/'/g, "\\'").trim()}')">Eliminar</button></td>
@@ -675,16 +767,23 @@ async function crearUsuario() {
   const errorDiv = document.getElementById("errorUsuario");
   errorDiv.classList.add("oculto");
   const rol = document.getElementById("nUserRol").value;
+  const datos = {
+    nombre: document.getElementById("nUserNombre").value.trim(),
+    apellido: document.getElementById("nUserApellido").value.trim(),
+    sucursal_id: rol === "bombero" ? Number(document.getElementById("nUserSucursal").value) : null,
+    telefono: document.getElementById("nUserTelefono").value.trim(),
+  };
+  if (!usuarioEditandoId) {
+    datos.usuario = document.getElementById("nUserLogin").value.trim();
+    datos.password = document.getElementById("nUserClave").value;
+    datos.rol = rol;
+  }
   try {
-    await Api.post("/usuarios", {
-      nombre: document.getElementById("nUserNombre").value.trim(),
-      apellido: document.getElementById("nUserApellido").value.trim(),
-      usuario: document.getElementById("nUserLogin").value.trim(),
-      password: document.getElementById("nUserClave").value,
-      rol,
-      sucursal_id: rol === "bombero" ? Number(document.getElementById("nUserSucursal").value) : null,
-      telefono: document.getElementById("nUserTelefono").value.trim(),
-    });
+    if (usuarioEditandoId) {
+      await Api.put(`/usuarios/${usuarioEditandoId}`, datos);
+    } else {
+      await Api.post("/usuarios", datos);
+    }
     toggleFormUsuario(); // colapsa el formulario y limpia los campos
     listarUsuarios();
   } catch (err) {
@@ -801,7 +900,7 @@ async function refrescarMatrizReglas() {
         </div>
       </td>`;
     }).join("");
-    return `<tr><td style="font-weight:600;">${t.nombre}</td>${celdas}</tr>`;
+    return `<tr><td style="font-weight:600;">${t.nombre} <span style="color:var(--dorado); cursor:pointer; margin-left:4px;" onclick="verDescripcionTipoSocio(${t.id})" title="Ver descripción">ⓘ</span> <span style="color:var(--dorado); cursor:pointer; margin-left:2px;" onclick="editarNombreTipoSocio(${t.id})" title="Editar nombre">✏️</span> <span style="color:var(--rojo); cursor:pointer; margin-left:2px;" onclick="eliminarTipoSocio(${t.id})" title="Eliminar">🗑️</span></td>${celdas}</tr>`;
   }).join("");
 
   document.getElementById("matrizReglas").innerHTML = `
@@ -809,6 +908,43 @@ async function refrescarMatrizReglas() {
       <tr><th></th>${encabezados}</tr>
       ${filas}
     </table>`;
+}
+
+/** Muestra en un modal la descripción del tipo de socio (accesible con click o tap, sirve igual en mobile que en PC). */
+async function verDescripcionTipoSocio(tipoSocioId) {
+  const tipo = catalogos.tiposSocio.find((t) => t.id === tipoSocioId);
+  if (!tipo) return;
+  await avisar(tipo.descripcion || "Sin descripción.", tipo.nombre);
+}
+
+/** Pide un nombre nuevo (prellenado con el actual) y lo guarda para ese tipo de socio. */
+async function editarNombreTipoSocio(tipoSocioId) {
+  const tipo = catalogos.tiposSocio.find((t) => t.id === tipoSocioId);
+  if (!tipo) return;
+  const nuevoNombre = await pedirTexto("Nuevo nombre para el tipo de socio:", "Editar tipo de socio", { valorInicial: tipo.nombre });
+  if (nuevoNombre === null || nuevoNombre === tipo.nombre) return; // canceló o no cambió nada
+  try {
+    await Api.put(`/catalogos/tipos-socio/${tipoSocioId}`, { nombre: nuevoNombre });
+    await cargarCatalogos(); // recarga catalogos.tiposSocio con el nombre nuevo
+    await refrescarMatrizReglas();
+  } catch (err) {
+    await avisar(err.message, "Error");
+  }
+}
+
+/** Elimina un tipo de socio, solo si no tiene socios ni reglas de descuento asociadas (lo rechaza la base de datos). */
+async function eliminarTipoSocio(tipoSocioId) {
+  const tipo = catalogos.tiposSocio.find((t) => t.id === tipoSocioId);
+  if (!tipo) return;
+  const confirmado = await confirmarAccion(`¿Eliminar definitivamente el tipo de socio "${tipo.nombre}"? Esta acción no se puede deshacer.`, "Eliminar tipo de socio");
+  if (!confirmado) return;
+  try {
+    await Api.delete(`/catalogos/tipos-socio/${tipoSocioId}`);
+    await cargarCatalogos();
+    await refrescarMatrizReglas();
+  } catch (err) {
+    await avisar(err.message, "Error");
+  }
 }
 
 async function guardarReglaCelda(tipoSocioId, combustibleId) {
@@ -896,12 +1032,42 @@ async function crearSucursal() {
   }
 }
 
+/** Pide un nombre nuevo (prellenado con el actual) y lo guarda para esa sucursal. */
+async function editarNombreSucursal(sucursalId) {
+  const sucursal = catalogos.sucursales.find((s) => s.id === sucursalId);
+  if (!sucursal) return;
+  const nuevoNombre = await pedirTexto("Nuevo nombre para la sucursal:", "Editar sucursal", { valorInicial: sucursal.nombre });
+  if (nuevoNombre === null || nuevoNombre === sucursal.nombre) return; // canceló o no cambió nada
+  try {
+    await Api.put(`/catalogos/sucursales/${sucursalId}`, { nombre: nuevoNombre });
+    await cargarCatalogos(); // recarga catalogos.sucursales con el nombre nuevo
+    await refrescarMatrizPrecios();
+  } catch (err) {
+    await avisar(err.message, "Error");
+  }
+}
+
+/** Elimina una sucursal, solo si no tiene precios, transacciones ni usuarios asociados (lo rechaza la base de datos). */
+async function eliminarSucursal(sucursalId) {
+  const sucursal = catalogos.sucursales.find((s) => s.id === sucursalId);
+  if (!sucursal) return;
+  const confirmado = await confirmarAccion(`¿Eliminar definitivamente la sucursal "${sucursal.nombre}"? Esta acción no se puede deshacer.`, "Eliminar sucursal");
+  if (!confirmado) return;
+  try {
+    await Api.delete(`/catalogos/sucursales/${sucursalId}`);
+    await cargarCatalogos();
+    await refrescarMatrizPrecios();
+  } catch (err) {
+    await avisar(err.message, "Error");
+  }
+}
+
 async function refrescarMatrizPrecios() {
   const rows = await Api.get("/catalogos/precios");
   const indice = {};
   rows.forEach((p) => { indice[`${p.combustible_id}-${p.sucursal_id}`] = p; });
 
-  const encabezados = catalogos.sucursales.map((s) => `<th>${s.nombre}</th>`).join("");
+  const encabezados = catalogos.sucursales.map((s) => `<th>${s.nombre} <span style="color:var(--dorado); cursor:pointer; font-weight:normal;" onclick="editarNombreSucursal(${s.id})" title="Editar nombre">✏️</span> <span style="color:var(--rojo); cursor:pointer; font-weight:normal;" onclick="eliminarSucursal(${s.id})" title="Eliminar">🗑️</span></th>`).join("");
   const filas = catalogos.combustibles.map((c) => {
     const celdas = catalogos.sucursales.map((s) => {
       const p = indice[`${c.id}-${s.id}`];

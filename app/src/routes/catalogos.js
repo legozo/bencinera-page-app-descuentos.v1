@@ -32,6 +32,50 @@ router.post("/sucursales", requiereRol("admin"), async (req, res) => {
   }
 });
 
+/** Cambiar el nombre de una sucursal existente (solo admin). */
+router.put("/sucursales/:id", requiereRol("admin"), async (req, res) => {
+  const { nombre } = req.body || {};
+  if (!nombre || !nombre.trim()) {
+    return res.status(400).json({ error: "El nombre de la sucursal es obligatorio." });
+  }
+  try {
+    const { rows } = await db.query(
+      `UPDATE sucursales SET nombre = $1 WHERE id = $2 RETURNING *`,
+      [capitalizarNombre(nombre), req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Sucursal no encontrada." });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Ya existe una sucursal con ese nombre." });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al actualizar la sucursal." });
+  }
+});
+
+/**
+ * Eliminar sucursal (solo admin). Si ya tiene precios, transacciones o usuarios asignados,
+ * la base de datos rechaza el borrado (llave foránea) para no perder ese historial.
+ */
+router.delete("/sucursales/:id", requiereRol("admin"), async (req, res) => {
+  try {
+    const { rowCount } = await db.query("DELETE FROM sucursales WHERE id = $1", [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: "Sucursal no encontrada." });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(409).json({
+        error: "No se puede eliminar: esta sucursal ya tiene precios, transacciones o usuarios registrados.",
+      });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al eliminar la sucursal." });
+  }
+});
+
 router.get("/combustibles", async (req, res) => {
   const { rows } = await db.query("SELECT * FROM combustibles ORDER BY nombre");
   res.json(rows);
@@ -60,6 +104,50 @@ router.post("/tipos-socio", requiereRol("admin"), async (req, res) => {
     }
     console.error(err);
     res.status(500).json({ error: "Error al crear el tipo de socio." });
+  }
+});
+
+/** Cambiar el nombre de un tipo de socio existente (solo admin). */
+router.put("/tipos-socio/:id", requiereRol("admin"), async (req, res) => {
+  const { nombre } = req.body || {};
+  if (!nombre || !nombre.trim()) {
+    return res.status(400).json({ error: "El nombre del tipo de socio es obligatorio." });
+  }
+  try {
+    const { rows } = await db.query(
+      `UPDATE tipos_socio SET nombre = $1 WHERE id = $2 RETURNING *`,
+      [capitalizarNombre(nombre), req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Tipo de socio no encontrado." });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Ya existe un tipo de socio con ese nombre." });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al actualizar el tipo de socio." });
+  }
+});
+
+/**
+ * Eliminar tipo de socio (solo admin). Si ya tiene socios asignados o reglas de descuento
+ * registradas, la base de datos rechaza el borrado (llave foránea) para no perder ese historial.
+ */
+router.delete("/tipos-socio/:id", requiereRol("admin"), async (req, res) => {
+  try {
+    const { rowCount } = await db.query("DELETE FROM tipos_socio WHERE id = $1", [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: "Tipo de socio no encontrado." });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(409).json({
+        error: "No se puede eliminar: este tipo de socio ya tiene socios o reglas de descuento registradas.",
+      });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al eliminar el tipo de socio." });
   }
 });
 
