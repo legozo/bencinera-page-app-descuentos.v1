@@ -258,10 +258,12 @@ router.put("/reglas-descuento", requiereRol("admin"), async (req, res) => {
   if (!tipo_socio_id || !combustible_id || descuento_clp_litro === undefined) {
     return res.status(400).json({ error: "tipo_socio_id, combustible_id y descuento_clp_litro son obligatorios." });
   }
+  // El peso chileno no tiene centavos en uso: se redondea a entero (la columna ya no acepta decimales).
+  const descuentoEntero = Math.round(Number(descuento_clp_litro));
   const { rows } = await db.query(
     `INSERT INTO reglas_descuento (tipo_socio_id, combustible_id, descuento_clp_litro)
      VALUES ($1, $2, $3) RETURNING *`,
-    [tipo_socio_id, combustible_id, descuento_clp_litro]
+    [tipo_socio_id, combustible_id, descuentoEntero]
   );
   res.json(rows[0]);
 });
@@ -320,10 +322,12 @@ router.post("/precios", requiereRol("admin"), async (req, res) => {
   if (!sucursal_id || !combustible_id || precio_clp_litro === undefined || Number(precio_clp_litro) < 0) {
     return res.status(400).json({ error: "sucursal_id, combustible_id y precio_clp_litro (>= 0) son obligatorios." });
   }
+  // El peso chileno no tiene centavos en uso: se redondea a entero (la columna ya no acepta decimales).
+  const precioEntero = Math.round(Number(precio_clp_litro));
   const { rows } = await db.query(
     `INSERT INTO precios_combustible (sucursal_id, combustible_id, precio_clp_litro, creado_por)
      VALUES ($1, $2, $3, $4) RETURNING *`,
-    [sucursal_id, combustible_id, precio_clp_litro, req.usuario.id]
+    [sucursal_id, combustible_id, precioEntero, req.usuario.id]
   );
   res.status(201).json(rows[0]);
 });

@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS reglas_descuento (
     id SERIAL PRIMARY KEY,
     tipo_socio_id INTEGER NOT NULL REFERENCES tipos_socio(id),
     combustible_id INTEGER NOT NULL REFERENCES combustibles(id),
-    descuento_clp_litro NUMERIC(10, 2) NOT NULL,
+    descuento_clp_litro NUMERIC(10, 0) NOT NULL,
     vigente_desde TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS reglas_descuento (
 -- para poder llevar historial, y agregamos vigente_desde si no existía.
 ALTER TABLE reglas_descuento DROP CONSTRAINT IF EXISTS reglas_descuento_tipo_socio_id_combustible_id_key;
 ALTER TABLE reglas_descuento ADD COLUMN IF NOT EXISTS vigente_desde TIMESTAMP NOT NULL DEFAULT now();
+-- El peso chileno no tiene centavos en uso: se guarda como entero, sin decimales.
+ALTER TABLE reglas_descuento ALTER COLUMN descuento_clp_litro TYPE NUMERIC(10, 0);
 
 CREATE INDEX IF NOT EXISTS idx_reglas_lookup
     ON reglas_descuento (tipo_socio_id, combustible_id, vigente_desde DESC);
@@ -91,13 +93,15 @@ CREATE TABLE IF NOT EXISTS precios_combustible (
     id SERIAL PRIMARY KEY,
     sucursal_id INTEGER NOT NULL REFERENCES sucursales(id),
     combustible_id INTEGER NOT NULL REFERENCES combustibles(id),
-    precio_clp_litro NUMERIC(10, 2) NOT NULL,
+    precio_clp_litro NUMERIC(10, 0) NOT NULL,
     vigente_desde TIMESTAMP NOT NULL DEFAULT now(),
     creado_por INTEGER REFERENCES usuarios(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_precios_lookup
     ON precios_combustible (sucursal_id, combustible_id, vigente_desde DESC);
+-- El peso chileno no tiene centavos en uso: se guarda como entero, sin decimales.
+ALTER TABLE precios_combustible ALTER COLUMN precio_clp_litro TYPE NUMERIC(10, 0);
 
 CREATE TABLE IF NOT EXISTS transacciones (
     id SERIAL PRIMARY KEY,

@@ -214,7 +214,7 @@ router.get("/", requiereRol("admin"), async (req, res) => {
   const exportarTodo = exportar === "1";
   const limiteSQL = exportarTodo ? "" : `LIMIT ${porPagina} OFFSET ${offset}`;
 
-  const [resultadoFilas, resultadoConteo] = await Promise.all([
+  const [resultadoFilas, resultadoConteo, resultadoSuma] = await Promise.all([
     db.query(
       `SELECT t.*, s.nombre AS socio_nombre, s.apellido AS socio_apellido, s.dv AS socio_dv,
               c.nombre AS combustible_nombre, su.nombre AS sucursal_nombre,
@@ -233,11 +233,18 @@ router.get("/", requiereRol("admin"), async (req, res) => {
       `SELECT COUNT(*)::int AS total FROM transacciones t ${where}`,
       valores
     ),
+    // Suma sobre TODAS las filas que calzan con el filtro (no solo la página actual), para
+    // que "Total del período" sea correcto aunque el resultado tenga más de una página.
+    db.query(
+      `SELECT COALESCE(SUM(descuento_total_clp), 0) AS suma_descuentos FROM transacciones t ${where}`,
+      valores
+    ),
   ]);
 
   res.json({
     filas: resultadoFilas.rows,
     total: resultadoConteo.rows[0].total,
+    suma_descuentos: resultadoSuma.rows[0].suma_descuentos,
     pagina: paginaActual,
     por_pagina: porPagina,
   });

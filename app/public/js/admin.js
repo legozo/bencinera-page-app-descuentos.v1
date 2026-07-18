@@ -246,16 +246,22 @@ async function buscarReportes() {
   // fila, con un subtotal por sucursal, para ver la trazabilidad completa.
   const grupos = agruparDetallePorSucursal(data.detalle);
   const litrosCombustible = litrosPorCombustible(data.detalle);
+  const litrosCombustibleHtml = litrosCombustible.length
+    ? `<div class="grid-2">${litrosCombustible.map(([c, l]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">${fmt(l)} L</div></div>`).join("")}</div>`
+    : `<p class="chico">Sin datos</p>`;
 
   cont.innerHTML = `
     <div class="tarjeta">
       <p class="chico">${rangoTexto}</p>
       <h3>Totales</h3>
-      <p>Transacciones: <strong>${data.totales.transacciones}</strong> —
-         Litros totales: <strong>${fmt(data.totales.litros)}</strong> —
-         Descuento otorgado: <strong>$${fmt(data.totales.descuento_total)}</strong> —
-         Total cobrado: <strong>$${fmt(data.totales.monto_total)}</strong></p>
-      <p class="chico">Litros por combustible: ${litrosCombustible.map(([c, l]) => `${c}: <strong>${fmt(l)}</strong>`).join(" — ") || "Sin datos"}</p>
+      <div class="grid-2" style="margin-top:10px;">
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Transacciones</div><div style="font-size:17px; font-weight:600;">${fmt(data.totales.transacciones)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Litros totales</div><div style="font-size:17px; font-weight:600;">${fmt(data.totales.litros)} L</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuento otorgado</div><div style="font-size:17px; font-weight:600;">$${fmt(data.totales.descuento_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Total cobrado</div><div style="font-size:17px; font-weight:600;">$${fmt(data.totales.monto_total)}</div></div>
+      </div>
+      <h3 style="margin-top:16px;">Litros por combustible</h3>
+      ${litrosCombustibleHtml}
       <button class="secundario" style="margin-top:10px;" onclick="exportarReporteCSV()">Exportar a Excel</button>
     </div>
     <div class="tarjeta">
@@ -331,6 +337,7 @@ function exportarReporteCSV() {
 let usuariosCacheHistorial = []; // lista de bomberos/admins para el filtro "Bombero"
 let paginaHistorialActual = 1;
 let totalHistorial = 0;
+let sumaDescuentosHistorial = 0; // suma de TODAS las filas que calzan con el filtro, no solo la página actual
 const POR_PAGINA_HISTORIAL = 500;
 
 async function cargarHistorial() {
@@ -398,7 +405,9 @@ async function buscarHistorial(pagina = 1) {
   ultimoHistorial = rows;
   paginaHistorialActual = data.pagina;
   totalHistorial = data.total;
+  sumaDescuentosHistorial = Number(data.suma_descuentos);
   document.getElementById("tablaHistorial").innerHTML = `
+    <p class="chico">Total del período: <strong>$${fmt(sumaDescuentosHistorial)}</strong> (${fmt(totalHistorial)} descuentos)</p>
     <table>
       <tr><th>Fecha</th><th>Hora</th><th>Sucursal</th><th>Bombero</th><th>RUT</th><th>Nombre socio</th><th>Combustible</th><th>Litros</th><th>Precio/L</th><th>Descuento</th><th>Total cobrado</th></tr>
       ${rows.map((t) => {
@@ -441,10 +450,39 @@ function paginacionHistorialHTML() {
     </div>`;
 }
 
+/** Arma pares [etiqueta, valor] con los filtros de Historial actualmente aplicados (con nombre,
+ * no solo el id, para sucursal/bombero), para dejarlos documentados en el CSV exportado. */
+function resumenFiltrosHistorial() {
+  const desde = document.getElementById("filtroDesde").value;
+  const hasta = document.getElementById("filtroHasta").value;
+  const rut = document.getElementById("filtroRut").value.trim();
+  const sucursalId = document.getElementById("filtroSucursal").value;
+  const bomberoId = document.getElementById("filtroBombero").value;
+  const precioMin = document.getElementById("filtroPrecioMin").value;
+  const precioMax = document.getElementById("filtroPrecioMax").value;
+
+  const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
+  const bombero = bomberoId ? usuariosCacheHistorial.find((u) => u.id === Number(bomberoId)) : null;
+  const periodo = desde || hasta
+    ? `${desde || "el inicio"} a ${hasta || "hoy"}`
+    : "Todo el histórico (desde que se instaló la app)";
+
+  return [
+    ["Período", periodo],
+    ["RUT", rut || "(todos)"],
+    ["Sucursal", sucursal ? sucursal.nombre : "(todas)"],
+    ["Bombero", bombero ? `${bombero.nombre} ${bombero.apellido || ""}`.trim() : "(todos)"],
+    ["Precio/L mínimo", precioMin || "(sin filtro)"],
+    ["Precio/L máximo", precioMax || "(sin filtro)"],
+  ];
+}
+
 /**
  * Exporta lo que está actualmente cargado en la tabla de historial a un archivo CSV,
  * que Excel abre directo (doble click). Usa punto y coma como separador y BOM UTF-8
- * para que Excel en español reconozca bien las columnas y las tildes.
+ * para que Excel en español reconozca bien las columnas y las tildes. Antes de la tabla
+ * deja documentados los filtros con los que se generó, para no perder ese contexto una
+ * vez que el archivo se guarda o se comparte.
  */
 async function exportarHistorialCSV() {
   if (totalHistorial === 0) {
@@ -469,6 +507,9 @@ async function exportarHistorialCSV() {
     return /[;"\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
   };
 
+  const lineasFiltros = resumenFiltrosHistorial().map(([etiqueta, valor]) => [etiqueta, valor].map(escaparCsv).join(";"));
+  const lineaTotal = ["Total del período", `$${fmt(data.suma_descuentos)} (${filasHistorial.length} descuentos)`].map(escaparCsv).join(";");
+
   const filas = filasHistorial.map((t) => {
     const fechaHora = new Date(t.creado_en);
     const rutMostrado = t.socio_dv ? `${t.rut_consultado}-${t.socio_dv}` : t.rut_consultado;
@@ -489,7 +530,7 @@ async function exportarHistorialCSV() {
     ].map(escaparCsv).join(";");
   });
 
-  const csv = [encabezados.join(";"), ...filas].join("\r\n");
+  const csv = [...lineasFiltros, lineaTotal, "", encabezados.join(";"), ...filas].join("\r\n");
   const bom = "﻿"; // para que Excel detecte UTF-8 y no rompa las tildes/ñ
   const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
 
@@ -917,7 +958,7 @@ async function refrescarMatrizReglas() {
       const valor = r ? r.descuento_clp_litro : "0";
       return `<td>
         <div style="display:flex; gap:6px; align-items:center;">
-          <input id="regla-${t.id}-${c.id}" type="number" step="0.01" value="${valor}" style="width:80px;">
+          <input id="regla-${t.id}-${c.id}" type="number" step="1" value="${valor}" style="width:80px;">
           <button class="secundario" onclick="guardarReglaCelda(${t.id}, ${c.id})">✓</button>
         </div>
       </td>`;
@@ -970,7 +1011,7 @@ async function eliminarTipoSocio(tipoSocioId) {
 }
 
 async function guardarReglaCelda(tipoSocioId, combustibleId) {
-  const valor = Number(document.getElementById(`regla-${tipoSocioId}-${combustibleId}`).value);
+  const valor = Math.round(Number(document.getElementById(`regla-${tipoSocioId}-${combustibleId}`).value));
   const tipoSocio = catalogos.tiposSocio.find((t) => t.id === tipoSocioId);
   const combustible = catalogos.combustibles.find((c) => c.id === combustibleId);
   const confirmado = await confirmarAccion(
@@ -1105,7 +1146,7 @@ async function refrescarMatrizPrecios() {
         : `<div class="chico" style="margin-top:2px;">Sin precio</div>`;
       return `<td>
         <div style="display:flex; gap:6px; align-items:center;">
-          <input id="precio-${c.id}-${s.id}" type="number" step="0.01" value="${valor}" placeholder="$" style="width:90px;">
+          <input id="precio-${c.id}-${s.id}" type="number" step="1" value="${valor}" placeholder="$" style="width:90px;">
           <button class="secundario" onclick="guardarPrecioCelda(${s.id}, ${c.id})">✓</button>
         </div>
         ${pie}
@@ -1149,7 +1190,7 @@ async function verHistorialPrecio(sucursalId, combustibleId, sucursalNombre, com
 }
 
 async function guardarPrecioCelda(sucursalId, combustibleId) {
-  const valor = Number(document.getElementById(`precio-${combustibleId}-${sucursalId}`).value);
+  const valor = Math.round(Number(document.getElementById(`precio-${combustibleId}-${sucursalId}`).value));
   if (!valor || valor < 0) {
     avisar("Ingresa un precio válido.");
     return;
@@ -1306,12 +1347,13 @@ function renderFormularioCuadre(valoresPrevios) {
     const valorEntrada = guardado ? guardado.entrada : (l.lectura_entrada ?? "");
     const valorSalida = guardado ? guardado.salida : (l.lectura_salida_guardada ?? "");
     const disabled = soloLectura ? "disabled" : "";
+    const nuevaMaquina = i > 0 && l.maquina_id !== lecturasCuadre[i - 1].maquina_id;
     return `
-    <tr>
+    <tr${nuevaMaquina ? ' class="nueva-maquina"' : ""}>
       <td data-etiqueta="Máquina">${l.maquina_nombre}</td>
       <td data-etiqueta="Combustible">${l.combustible_nombre}</td>
-      <td data-etiqueta="Entrada"><input type="number" step="0.1" min="0" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="recalcularCuadre()" style="width:100px;" ${disabled}></td>
-      <td data-etiqueta="Salida"><input type="number" step="0.1" min="0" id="salida-${i}" value="${valorSalida}" oninput="recalcularCuadre()" style="width:100px;" ${disabled}></td>
+      <td data-etiqueta="Entrada"><input type="number" step="0.1" min="0" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
+      <td data-etiqueta="Salida"><input type="number" step="0.1" min="0" id="salida-${i}" value="${valorSalida}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
       <td data-etiqueta="Litros" id="litros-${i}">-</td>
     </tr>
     <tr id="filaError-${i}" class="oculto"><td colspan="5" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
@@ -1344,12 +1386,14 @@ function renderFormularioCuadre(valoresPrevios) {
     ${avisoNoTerminado}
     <div class="tarjeta">
       <button class="secundario" onclick="toggleFormMaquina()">+ Agregar máquina</button>
-      <div id="formMaquina" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc; display:flex; gap:10px; align-items:flex-end;">
-        <div style="flex:1;"><label>Nombre</label><input id="nMaquinaNombre" placeholder="ej. Máquina II-A"></div>
-        <button class="primario" style="margin-top:0;" onclick="crearMaquina()">Guardar</button>
+      <div id="formMaquina" class="oculto" style="margin-top:12px;">
+        <div style="border:1px solid var(--borde); border-radius:8px; padding:16px; background:#fafbfc; display:flex; gap:10px; align-items:flex-end;">
+          <div style="flex:1;"><label>Nombre</label><input id="nMaquinaNombre" placeholder="ej. Máquina II-A"></div>
+          <button class="primario" style="margin-top:0;" onclick="crearMaquina()">Guardar</button>
+        </div>
+        <div id="errorMaquina" class="mensaje-error oculto"></div>
+        <div style="margin-top:12px;">${renderListaMaquinas()}</div>
       </div>
-      <div id="errorMaquina" class="mensaje-error oculto"></div>
-      <div style="margin-top:12px;">${renderListaMaquinas()}</div>
     </div>
 
     <div class="tarjeta">
@@ -1620,6 +1664,8 @@ async function guardarEdicionCuadre() {
 }
 
 // ---------- Historial de cuadres ----------
+let ultimoHistorialCuadres = []; // guarda las filas cargadas para poder exportarlas
+
 async function cargarHistorialCuadres() {
   const cont = document.getElementById("tab-historial-cuadres");
   await cargarCatalogos();
@@ -1633,6 +1679,7 @@ async function cargarHistorialCuadres() {
       </div>
       <button class="secundario" style="margin-top:10px;" onclick="buscarHistorialCuadres()">Filtrar</button>
       <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosHistorialCuadres()">Limpiar filtros</button>
+      <button class="secundario" style="margin-top:10px;" onclick="exportarHistorialCuadresCSV()">Exportar a Excel</button>
     </div>
     <div class="tarjeta"><div id="tablaHistorialCuadres">${skeletonLineas(6)}</div></div>`;
   buscarHistorialCuadres();
@@ -1657,6 +1704,7 @@ async function buscarHistorialCuadres() {
   const cont = document.getElementById("tablaHistorialCuadres");
   cont.innerHTML = skeletonLineas(6);
   const rows = await Api.get(`/cuadres?${params.toString()}`);
+  ultimoHistorialCuadres = rows;
 
   cont.innerHTML = `
     <table>
@@ -1680,6 +1728,75 @@ async function buscarHistorialCuadres() {
       }).join("") || '<tr><td colspan="11">Sin registros</td></tr>'}
     </table>
     <p class="chico" style="margin-top:8px;">Suma (T+E+D) = Tarjeta + Efectivo + Descuentos. Diferencia = Litros × precio − Suma.</p>`;
+}
+
+/** Arma pares [etiqueta, valor] con los filtros de Historial de cuadres actualmente aplicados. */
+function resumenFiltrosHistorialCuadres() {
+  const desde = document.getElementById("hcDesde").value;
+  const hasta = document.getElementById("hcHasta").value;
+  const sucursalId = document.getElementById("hcSucursal").value;
+  const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
+  const periodo = desde || hasta
+    ? `${desde || "el inicio"} a ${hasta || "hoy"}`
+    : "Todo el histórico (desde que se instaló la app)";
+  return [
+    ["Período", periodo],
+    ["Sucursal", sucursal ? sucursal.nombre : "(todas)"],
+  ];
+}
+
+/** Exporta el historial de cuadres actualmente cargado a CSV, mismo formato (BOM + ";" +
+ * filtros documentados arriba) que exportarHistorialCSV() en Historial de socios. */
+function exportarHistorialCuadresCSV() {
+  if (ultimoHistorialCuadres.length === 0) {
+    avisar("No hay datos cargados para exportar. Filtra primero.");
+    return;
+  }
+
+  const encabezados = [
+    "Fecha", "Turno", "Sucursal", "Litros", "Litros por precio", "Tarjeta", "Efectivo",
+    "Descuentos", "Suma (T+E+D)", "Diferencia", "Cerrado por", "Editado",
+  ];
+
+  const escaparCsv = (valor) => {
+    const texto = String(valor ?? "");
+    return /[;"\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+  };
+
+  const lineasFiltros = resumenFiltrosHistorialCuadres().map(([etiqueta, valor]) => [etiqueta, valor].map(escaparCsv).join(";"));
+
+  const filas = ultimoHistorialCuadres.map((c) => {
+    const suma = Number(c.tarjeta_total) + Number(c.efectivo_total) + Number(c.descuentos_total);
+    const cerradoPor = `${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}`.trim();
+    return [
+      new Date(c.turno_fin).toLocaleDateString("es-CL"),
+      NOMBRE_TURNO[c.turno] || c.turno,
+      c.sucursal_nombre,
+      c.litros_totales,
+      c.litros_precio_total,
+      c.tarjeta_total,
+      c.efectivo_total,
+      c.descuentos_total,
+      suma,
+      c.diferencia,
+      cerradoPor,
+      c.editado_en ? `Sí (${new Date(c.editado_en).toLocaleString("es-CL")})` : "No",
+    ].map(escaparCsv).join(";");
+  });
+
+  const csv = [...lineasFiltros, "", encabezados.join(";"), ...filas].join("\r\n");
+  const bom = "﻿"; // para que Excel detecte UTF-8 y no rompa las tildes/ñ
+  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  const fecha = new Date().toISOString().slice(0, 10);
+  enlace.href = url;
+  enlace.download = `historial_cuadres_${fecha}.csv`;
+  document.body.appendChild(enlace);
+  enlace.click();
+  document.body.removeChild(enlace);
+  URL.revokeObjectURL(url);
 }
 
 // ---------- Reportes de cuadres ----------
@@ -1754,6 +1871,7 @@ async function buscarReportesCuadres() {
 
 // ---------- Descargas ----------
 let bomberosCacheDescargas = [];
+let ultimoHistorialDescargas = []; // guarda las filas cargadas para poder exportarlas
 
 async function cargarDescargas() {
   const cont = document.getElementById("tab-descargas");
@@ -1786,6 +1904,7 @@ async function cargarDescargas() {
       </div>
       <button class="secundario" style="margin-top:10px;" onclick="buscarDescargas()">Filtrar</button>
       <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosDescargas()">Limpiar filtros</button>
+      <button class="secundario" style="margin-top:10px;" onclick="exportarDescargasCSV()">Exportar a Excel</button>
       <div id="tablaDescargas" style="margin-top:10px;">${skeletonLineas(5)}</div>
     </div>`;
   actualizarBomberosDescarga();
@@ -1868,6 +1987,7 @@ async function buscarDescargas() {
   const cont = document.getElementById("tablaDescargas");
   cont.innerHTML = skeletonLineas(4);
   const rows = await Api.get(`/descargas?${params.toString()}`);
+  ultimoHistorialDescargas = rows;
   const total = rows.reduce((acc, d) => acc + Number(d.monto), 0);
 
   cont.innerHTML = `
@@ -1887,6 +2007,70 @@ async function buscarDescargas() {
         </tr>`;
       }).join("") || '<tr><td colspan="6">Sin registros</td></tr>'}
     </table>`;
+}
+
+/** Arma pares [etiqueta, valor] con los filtros de Descargas actualmente aplicados. */
+function resumenFiltrosDescargas() {
+  const desde = document.getElementById("descargaDesde").value;
+  const hasta = document.getElementById("descargaHasta").value;
+  const sucursalId = document.getElementById("descargaFiltroSucursal").value;
+  const bomberoId = document.getElementById("descargaFiltroBombero").value;
+  const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
+  const bombero = bomberoId ? bomberosCacheDescargas.find((u) => u.id === Number(bomberoId)) : null;
+  const periodo = desde || hasta
+    ? `${desde || "el inicio"} a ${hasta || "hoy"}`
+    : "Todo el histórico (desde que se instaló la app)";
+  return [
+    ["Período", periodo],
+    ["Sucursal", sucursal ? sucursal.nombre : "(todas)"],
+    ["Bombero", bombero ? `${bombero.nombre} ${bombero.apellido || ""}`.trim() : "(todos)"],
+  ];
+}
+
+/** Exporta el historial de descargas actualmente cargado a CSV, mismo formato (BOM + ";" +
+ * filtros documentados arriba) que exportarHistorialCSV() en Historial de socios. */
+function exportarDescargasCSV() {
+  if (ultimoHistorialDescargas.length === 0) {
+    avisar("No hay datos cargados para exportar. Filtra primero.");
+    return;
+  }
+
+  const encabezados = ["Fecha", "Hora", "Sucursal", "Bombero", "Monto"];
+
+  const escaparCsv = (valor) => {
+    const texto = String(valor ?? "");
+    return /[;"\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+  };
+
+  const lineasFiltros = resumenFiltrosDescargas().map(([etiqueta, valor]) => [etiqueta, valor].map(escaparCsv).join(";"));
+  const totalDescargas = ultimoHistorialDescargas.reduce((acc, d) => acc + Number(d.monto), 0);
+  const lineaTotal = ["Total del período", `$${fmt(totalDescargas)} (${ultimoHistorialDescargas.length} descargas)`].map(escaparCsv).join(";");
+
+  const filas = ultimoHistorialDescargas.map((d) => {
+    const fechaHora = new Date(d.creado_en);
+    const nombreBombero = `${d.bombero_nombre} ${d.bombero_apellido || ""}`.trim();
+    return [
+      fechaHora.toLocaleDateString("es-CL"),
+      fechaHora.toLocaleTimeString("es-CL"),
+      d.sucursal_nombre,
+      nombreBombero,
+      d.monto,
+    ].map(escaparCsv).join(";");
+  });
+
+  const csv = [...lineasFiltros, lineaTotal, "", encabezados.join(";"), ...filas].join("\r\n");
+  const bom = "﻿"; // para que Excel detecte UTF-8 y no rompa las tildes/ñ
+  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  const fecha = new Date().toISOString().slice(0, 10);
+  enlace.href = url;
+  enlace.download = `descargas_${fecha}.csv`;
+  document.body.appendChild(enlace);
+  enlace.click();
+  document.body.removeChild(enlace);
+  URL.revokeObjectURL(url);
 }
 
 /** Elimina una descarga (ej. error de digitación). Si ya cayó dentro de la ventana de un
