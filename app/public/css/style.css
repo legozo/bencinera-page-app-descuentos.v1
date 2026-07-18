@@ -224,6 +224,20 @@ th { background: #f0f1f3; }
   font-weight: 600;
 }
 
+/* Selector de sección (Socios/Caja): solo se muestra en mobile, ver media query abajo. */
+.nav-selector-movil { display: none; }
+
+.nav-seccion-titulo {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: rgba(255,255,255,.4);
+  text-transform: uppercase;
+  padding: 14px 14px 6px;
+}
+.nav-seccion:first-child .nav-seccion-titulo { padding-top: 4px; }
+.nav-seccion { display: flex; flex-direction: column; gap: 2px; }
+
 .sidebar-logout {
   margin: 12px;
   background: transparent;
@@ -345,29 +359,58 @@ th { background: #f0f1f3; }
     width: 100%;
     height: auto;
     position: static;
-    flex-direction: row;
-    align-items: center;
-    overflow-x: auto;
+    flex-direction: column;
+    align-items: stretch;
   }
   .app-layout .contenedor {
     margin-left: 0;
   }
   .sidebar-logo {
-    border-bottom: none;
-    border-right: 1px solid rgba(255,255,255,.1);
-    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,.1);
   }
   .sidebar-nav {
-    flex-direction: row;
-    padding: 8px;
+    flex-direction: column;
+    padding: 0;
+    gap: 0;
   }
   .sidebar-nav button {
     white-space: nowrap;
   }
-  .sidebar-logout {
-    flex-shrink: 0;
-    white-space: nowrap;
+
+  /* Selector de sección Socios/Caja: 2 pastillas siempre visibles, sin scroll. */
+  .nav-selector-movil {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
   }
+  .sidebar-nav .nav-selector-btn {
+    flex: 1;
+    padding: 8px 0;
+    text-align: center;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,.7);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .sidebar-nav .nav-selector-btn.activo {
+    background: var(--dorado);
+    color: white;
+    font-weight: 600;
+  }
+
+  /* Solo la sección elegida arriba muestra su fila de pestañas, scrolleable aparte. */
+  .nav-seccion-titulo { display: none; }
+  .nav-seccion {
+    display: none;
+    flex-direction: row;
+    gap: 6px;
+    padding: 8px 12px 10px;
+    overflow-x: auto;
+    border-top: 1px solid rgba(255,255,255,.08);
+  }
+  .nav-seccion.activa-movil { display: flex; }
 
   table.responsivo-movil, table.responsivo-movil thead, table.responsivo-movil tbody,
   table.responsivo-movil th, table.responsivo-movil td, table.responsivo-movil tr {

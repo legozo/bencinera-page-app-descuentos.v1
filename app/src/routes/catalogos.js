@@ -76,6 +76,89 @@ router.delete("/sucursales/:id", requiereRol("admin"), async (req, res) => {
   }
 });
 
+/** Listado de máquinas/surtidores, opcionalmente filtrado por sucursal. */
+router.get("/maquinas", async (req, res) => {
+  const { sucursal_id } = req.query;
+  const condicion = sucursal_id ? "WHERE m.sucursal_id = $1" : "";
+  const valores = sucursal_id ? [sucursal_id] : [];
+  const { rows } = await db.query(
+    `SELECT m.*, s.nombre AS sucursal_nombre FROM maquinas m
+     JOIN sucursales s ON s.id = m.sucursal_id
+     ${condicion}
+     ORDER BY s.nombre, m.nombre`,
+    valores
+  );
+  res.json(rows);
+});
+
+/** Crear una máquina nueva (solo admin). Sin capitalizarNombre a propósito: los nombres
+ * suelen ser códigos como "Máquina II-A", que el capitalizador por palabra dejaría mal
+ * (ej. "Ii-a"). */
+router.post("/maquinas", requiereRol("admin"), async (req, res) => {
+  const { sucursal_id, nombre } = req.body || {};
+  if (!sucursal_id || !nombre || !nombre.trim()) {
+    return res.status(400).json({ error: "Sucursal y nombre son obligatorios." });
+  }
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO maquinas (sucursal_id, nombre) VALUES ($1, $2) RETURNING *`,
+      [sucursal_id, nombre.trim()]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Ya existe una máquina con ese nombre en esa sucursal." });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al crear la máquina." });
+  }
+});
+
+/** Cambiar el nombre y/o activar-desactivar una máquina existente (solo admin). */
+router.put("/maquinas/:id", requiereRol("admin"), async (req, res) => {
+  const { nombre, activa } = req.body || {};
+  if (nombre !== undefined && (typeof nombre !== "string" || !nombre.trim())) {
+    return res.status(400).json({ error: "El nombre de la máquina no puede quedar vacío." });
+  }
+  try {
+    const { rows } = await db.query(
+      `UPDATE maquinas SET nombre = COALESCE($1, nombre), activa = COALESCE($2, activa) WHERE id = $3 RETURNING *`,
+      [nombre ? nombre.trim() : null, activa, req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Máquina no encontrada." });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Ya existe una máquina con ese nombre en esa sucursal." });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al actualizar la máquina." });
+  }
+});
+
+/**
+ * Eliminar máquina (solo admin). Si ya tiene lecturas de cuadres registradas, la base de
+ * datos rechaza el borrado (llave foránea) — en ese caso hay que desactivarla en vez de
+ * eliminarla (PUT con { activa: false }), igual que con socios y usuarios.
+ */
+router.delete("/maquinas/:id", requiereRol("admin"), async (req, res) => {
+  try {
+    const { rowCount } = await db.query("DELETE FROM maquinas WHERE id = $1", [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: "Máquina no encontrada." });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(409).json({
+        error: "No se puede eliminar: esta máquina ya tiene lecturas de cuadres de caja registradas. Desactívala en su lugar.",
+      });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al eliminar la máquina." });
+  }
+});
+
 router.get("/combustibles", async (req, res) => {
   const { rows } = await db.query("SELECT * FROM combustibles ORDER BY nombre");
   res.json(rows);

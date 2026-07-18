@@ -14,14 +14,31 @@ async function cargarCatalogos() {
 }
 
 function cambiarTab(nombre) {
-  document.querySelectorAll(".sidebar-nav button").forEach((b) => b.classList.toggle("activo", b.dataset.tab === nombre));
+  document.querySelectorAll(".sidebar-nav button[data-tab]").forEach((b) => b.classList.toggle("activo", b.dataset.tab === nombre));
   document.querySelectorAll(".tab-contenido").forEach((d) => d.classList.add("oculto"));
   document.getElementById(`tab-${nombre}`).classList.remove("oculto");
-  const cargador = { reportes: cargarReportes, historial: cargarHistorial, socios: cargarSocios, bomberos: cargarBomberos, reglas: cargarReglas, precios: cargarPrecios }[nombre];
+  const cargador = {
+    reportes: cargarReportes, historial: cargarHistorial, socios: cargarSocios, bomberos: cargarBomberos,
+    reglas: cargarReglas, precios: cargarPrecios,
+    "cuadre-caja": cargarCuadreCaja, "historial-cuadres": cargarHistorialCuadres, "reportes-cuadres": cargarReportesCuadres,
+    descargas: cargarDescargas,
+  }[nombre];
   if (cargador) cargador();
 }
 
+/** Selector de sección (Socios/Caja) en mobile: muestra el sub-menú de esa sección y activa su primera pestaña. */
+function cambiarSeccion(seccion) {
+  document.querySelectorAll(".nav-selector-btn").forEach((b) => b.classList.toggle("activo", b.dataset.seccion === seccion));
+  document.querySelectorAll(".nav-seccion").forEach((s) => s.classList.toggle("activa-movil", s.dataset.seccion === seccion));
+  const primerBoton = document.querySelector(`.nav-seccion[data-seccion="${seccion}"] button[data-tab]`);
+  if (primerBoton) cambiarTab(primerBoton.dataset.tab);
+}
+
 function fmt(n) { return Number(n || 0).toLocaleString("es-CL"); }
+// Diferencia = litros×precio - (efectivo+tarjeta+descuentos). Positiva = el combustible
+// vendido vale más que lo recibido -> falta plata (alarma, rojo). Negativa = sobró plata
+// respecto al combustible vendido -> no es una falta real (verde).
+function colorDiferencia(v) { return v > 0 ? "var(--rojo)" : "var(--verde)"; }
 
 /** Muestra un modal propio de sí/no (reemplaza confirm() nativo). Devuelve una Promise<boolean>. */
 function confirmarAccion(mensaje, titulo = "Confirmar acción") {
@@ -147,29 +164,28 @@ function limpiarFiltrosReportes() {
   filtroReporteRapido("hoy");
 }
 
-function filtroReporteRapido(tipo) {
+/** "hoy"/"semana" (empieza lunes)/"mes"/cualquier otra cosa = todo. Usado por los filtros rápidos de Reportes (socios y cuadres). */
+function rangoRapido(tipo) {
   const hoy = new Date();
-  let desde = "";
-  let hasta = "";
-
   if (tipo === "hoy") {
-    desde = hasta = fechaLocalISO(hoy);
-  } else if (tipo === "semana") {
+    return { desde: fechaLocalISO(hoy), hasta: fechaLocalISO(hoy) };
+  }
+  if (tipo === "semana") {
     const inicioSemana = new Date(hoy);
     const diaSemana = inicioSemana.getDay(); // 0 = domingo
     const diff = diaSemana === 0 ? 6 : diaSemana - 1; // semana empieza el lunes
     inicioSemana.setDate(inicioSemana.getDate() - diff);
-    desde = fechaLocalISO(inicioSemana);
-    hasta = fechaLocalISO(hoy);
-  } else if (tipo === "mes") {
-    const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-    desde = fechaLocalISO(inicioMes);
-    hasta = fechaLocalISO(hoy);
-  } else {
-    desde = "";
-    hasta = "";
+    return { desde: fechaLocalISO(inicioSemana), hasta: fechaLocalISO(hoy) };
   }
+  if (tipo === "mes") {
+    const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    return { desde: fechaLocalISO(inicioMes), hasta: fechaLocalISO(hoy) };
+  }
+  return { desde: "", hasta: "" };
+}
 
+function filtroReporteRapido(tipo) {
+  const { desde, hasta } = rangoRapido(tipo);
   document.getElementById("reporteDesde").value = desde;
   document.getElementById("reporteHasta").value = hasta;
   buscarReportes();
@@ -1149,6 +1165,708 @@ async function guardarPrecioCelda(sucursalId, combustibleId) {
   });
   mostrarConfirmacion("confirmPrecios", "✓ Guardado");
   await refrescarMatrizPrecios();
+}
+
+// ---------- Cuadre de caja ----------
+let maquinasCacheCuadre = [];
+let preciosCacheCuadre = [];
+let lecturasCuadre = []; // [{maquina_id, maquina_nombre, combustible_id, combustible_nombre, lectura_entrada, lectura_salida_guardada?}]
+let cuadreInfo = null; // respuesta de GET /cuadres/turno: {existe, editable, turno, turno_inicio, turno_fin, efectivo_total, descuentos_total, cuadre?}
+let cuadrePendienteToken = 0; // descarta respuestas viejas si el admin cambia sucursal/fecha/turno rápido
+
+const NOMBRE_TURNO = { manana: "Mañana (20:00 - 08:00)", tarde: "Tarde (08:00 - 20:00)" };
+
+/** El último turno de 12h que ya terminó a esta hora — sugerencia inicial para no tener que
+ * pensar cuál es, aunque se puede elegir cualquier otra fecha/turno igual. */
+function sugerenciaTurnoCuadre() {
+  const ahora = new Date();
+  const hora = ahora.getHours();
+  if (hora >= 8 && hora < 20) return { fecha: fechaLocalISO(ahora), turno: "manana" };
+  if (hora >= 20) return { fecha: fechaLocalISO(ahora), turno: "tarde" };
+  const ayer = new Date(ahora);
+  ayer.setDate(ayer.getDate() - 1);
+  return { fecha: fechaLocalISO(ayer), turno: "tarde" };
+}
+
+async function cargarCuadreCaja() {
+  const cont = document.getElementById("tab-cuadre-caja");
+  await cargarCatalogos();
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  const sugerencia = sugerenciaTurnoCuadre();
+  cont.innerHTML = `
+    <div class="tarjeta">
+      <div class="grid-2">
+        <div><label>Sucursal</label><select id="cuadreSucursal" onchange="cargarTurnoCuadre()">${opcionesSucursal}</select></div>
+        <div><label>Fecha</label><input type="date" id="cuadreFecha" value="${sugerencia.fecha}" onchange="cargarTurnoCuadre()"></div>
+      </div>
+      <div style="margin-top:10px;">
+        <label>Turno</label>
+        <select id="cuadreTurno" onchange="cargarTurnoCuadre()">
+          <option value="tarde" ${sugerencia.turno === "tarde" ? "selected" : ""}>Tarde (08:00 - 20:00)</option>
+          <option value="manana" ${sugerencia.turno === "manana" ? "selected" : ""}>Mañana (20:00 - 08:00)</option>
+        </select>
+        <div class="chico" style="margin-top:4px;">Sugerido: el último turno que ya terminó. Puedes elegir otra fecha/turno si necesitas cerrar o revisar uno distinto.</div>
+      </div>
+    </div>
+    <div id="cuadreContenido">${skeletonLineas(6)}</div>`;
+  await cargarTurnoCuadre();
+}
+
+/** Lee lo que el admin ya tecleó en el formulario, para no perderlo si se refresca (ej. al crear/editar una máquina). */
+function capturarValoresCuadre() {
+  const valoresLecturas = {};
+  lecturasCuadre.forEach((l, i) => {
+    const entradaEl = document.getElementById(`entrada-${i}`);
+    const salidaEl = document.getElementById(`salida-${i}`);
+    if (!entradaEl || !salidaEl) return;
+    if (entradaEl.value !== "" || salidaEl.value !== "") {
+      valoresLecturas[`${l.maquina_id}-${l.combustible_id}`] = { entrada: entradaEl.value, salida: salidaEl.value };
+    }
+  });
+  const tarjetaEl = document.getElementById("cuadreTarjeta");
+  return { lecturas: valoresLecturas, tarjeta: tarjetaEl ? tarjetaEl.value : "" };
+}
+
+/**
+ * Carga el estado del turno elegido (sucursal + fecha + turno): si ya existe un cuadre lo
+ * trae para editar (si es el más reciente de la sucursal) o solo consulta (si no); si no
+ * existe, arma el formulario de creación. preservar=true mantiene lo que el admin ya tecleó
+ * (usado al crear/editar/eliminar una máquina desde este mismo formulario). Usa un token
+ * para descartar la respuesta si llega una petición más nueva antes.
+ */
+async function cargarTurnoCuadre(preservar) {
+  const miToken = ++cuadrePendienteToken;
+  const valoresPrevios = preservar ? capturarValoresCuadre() : null;
+  const sucursalId = document.getElementById("cuadreSucursal").value;
+  const fecha = document.getElementById("cuadreFecha").value;
+  const turno = document.getElementById("cuadreTurno").value;
+  const cont = document.getElementById("cuadreContenido");
+  cont.innerHTML = skeletonLineas(6);
+
+  let info, maquinas;
+  try {
+    [info, maquinas] = await Promise.all([
+      Api.get(`/cuadres/turno?sucursal_id=${sucursalId}&fecha=${fecha}&turno=${turno}`),
+      Api.get(`/catalogos/maquinas?sucursal_id=${sucursalId}`),
+    ]);
+  } catch (err) {
+    if (miToken !== cuadrePendienteToken) return;
+    cont.innerHTML = `<div class="tarjeta"><p class="mensaje-error" style="margin-top:0;">${err.message}</p></div>`;
+    return;
+  }
+  if (miToken !== cuadrePendienteToken) return; // llegó una petición más nueva antes que esta, se descarta
+
+  maquinasCacheCuadre = maquinas;
+  // El precio viene del mismo /cuadres/turno (vigente a la fecha del turno, no "el actual"),
+  // para que la vista previa en vivo coincida con lo que realmente se va a calcular al
+  // guardar — importante ahora que se puede cerrar/editar un turno de una fecha pasada.
+  preciosCacheCuadre = info.precios;
+  cuadreInfo = info;
+
+  lecturasCuadre = info.lecturas.map((l) => ({
+    maquina_id: l.maquina_id,
+    maquina_nombre: l.maquina_nombre,
+    combustible_id: l.combustible_id,
+    combustible_nombre: l.combustible_nombre,
+    lectura_entrada: l.lectura_entrada,
+    lectura_salida_guardada: info.existe ? l.lectura_salida : undefined,
+  }));
+
+  renderFormularioCuadre(valoresPrevios);
+}
+
+function renderListaMaquinas() {
+  return `
+    <table>
+      <tr><th>Máquina</th><th>Activa</th><th></th><th></th><th></th></tr>
+      ${maquinasCacheCuadre.map((m) => `
+        <tr>
+          <td>${m.nombre}</td>
+          <td>${m.activa ? "Sí" : "No"}</td>
+          <td><span style="color:var(--dorado); cursor:pointer;" onclick="editarNombreMaquina(${m.id})" title="Editar nombre">✏️</span></td>
+          <td><button class="secundario" onclick="toggleActivaMaquina(${m.id}, ${!m.activa})">${m.activa ? "Desactivar" : "Activar"}</button></td>
+          <td><span style="color:var(--rojo); cursor:pointer;" onclick="eliminarMaquina(${m.id})" title="Eliminar">🗑️</span></td>
+        </tr>`).join("") || '<tr><td colspan="5">Sin máquinas registradas en esta sucursal.</td></tr>'}
+    </table>`;
+}
+
+function renderFormularioCuadre(valoresPrevios) {
+  const cont = document.getElementById("cuadreContenido");
+  const soloLectura = cuadreInfo.existe && !cuadreInfo.editable;
+  const editando = cuadreInfo.existe && cuadreInfo.editable;
+
+  const filasLecturas = lecturasCuadre.map((l, i) => {
+    const guardado = valoresPrevios && valoresPrevios.lecturas[`${l.maquina_id}-${l.combustible_id}`];
+    const valorEntrada = guardado ? guardado.entrada : (l.lectura_entrada ?? "");
+    const valorSalida = guardado ? guardado.salida : (l.lectura_salida_guardada ?? "");
+    const disabled = soloLectura ? "disabled" : "";
+    return `
+    <tr>
+      <td data-etiqueta="Máquina">${l.maquina_nombre}</td>
+      <td data-etiqueta="Combustible">${l.combustible_nombre}</td>
+      <td data-etiqueta="Entrada"><input type="number" step="0.1" min="0" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="recalcularCuadre()" style="width:100px;" ${disabled}></td>
+      <td data-etiqueta="Salida"><input type="number" step="0.1" min="0" id="salida-${i}" value="${valorSalida}" oninput="recalcularCuadre()" style="width:100px;" ${disabled}></td>
+      <td data-etiqueta="Litros" id="litros-${i}">-</td>
+    </tr>
+    <tr id="filaError-${i}" class="oculto"><td colspan="5" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
+  }).join("");
+
+  const valorTarjeta = valoresPrevios ? valoresPrevios.tarjeta : (cuadreInfo.existe ? cuadreInfo.cuadre.tarjeta_total : "");
+
+  let avisoEstado = "";
+  if (cuadreInfo.existe) {
+    const c = cuadreInfo.cuadre;
+    const cerradoPor = `${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}`.trim();
+    let texto = `Cerrado por ${cerradoPor} el ${new Date(c.creado_en).toLocaleString("es-CL")}.`;
+    if (c.editado_en) {
+      texto += ` <span style="color:var(--dorado); font-weight:600;">✏️ Editado</span> (última edición: ${new Date(c.editado_en).toLocaleString("es-CL")}).`;
+    }
+    if (soloLectura) {
+      texto += ` Ya existe un turno posterior que depende de este cuadre, así que quedó solo para consulta — no se puede editar.`;
+    }
+    avisoEstado = `<div class="tarjeta"><p class="chico" style="margin:0;">${texto}</p></div>`;
+  }
+
+  cont.innerHTML = `
+    ${avisoEstado}
+    <div class="tarjeta">
+      <button class="secundario" onclick="toggleFormMaquina()">+ Agregar máquina</button>
+      <div id="formMaquina" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc; display:flex; gap:10px; align-items:flex-end;">
+        <div style="flex:1;"><label>Nombre</label><input id="nMaquinaNombre" placeholder="ej. Máquina II-A"></div>
+        <button class="primario" style="margin-top:0;" onclick="crearMaquina()">Guardar</button>
+      </div>
+      <div id="errorMaquina" class="mensaje-error oculto"></div>
+      <div style="margin-top:12px;">${renderListaMaquinas()}</div>
+    </div>
+
+    <div class="tarjeta">
+      <h3>Lecturas por máquina</h3>
+      <p class="chico">Deja una fila vacía (entrada y salida) si esa máquina/combustible no tuvo movimiento este turno.</p>
+      <table class="responsivo-movil">
+        <tr><th>Máquina</th><th>Combustible</th><th>Entrada</th><th>Salida</th><th>Litros</th></tr>
+        ${filasLecturas}
+      </table>
+    </div>
+
+    <div class="tarjeta">
+      <h3>Resumen del turno</h3>
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Litros × precio</div><div id="statLitrosPrecio" style="font-size:17px; font-weight:600;">$0</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo (descargas)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.efectivo_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos (app)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.descuentos_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
+          <label style="margin:0;">Tarjeta (informado por la máquina de tarjetas)</label>
+          <input type="number" step="1" min="0" id="cuadreTarjeta" value="${valorTarjeta}" oninput="recalcularCuadre()" placeholder="$" ${soloLectura ? "disabled" : ""}>
+        </div>
+      </div>
+      <div id="cuadreDiferencia" style="font-size:16px; margin-bottom:14px;"></div>
+      ${soloLectura ? "" : `<button class="primario" onclick="${editando ? "guardarEdicionCuadre()" : "cerrarTurno()"}">${editando ? "Guardar cambios" : "Cerrar turno"}</button>`}
+      <div id="errorCuadre" class="mensaje-error oculto"></div>
+    </div>`;
+  recalcularCuadre();
+}
+
+/** Muestra u oculta el mini formulario para crear una máquina nueva. */
+function toggleFormMaquina() {
+  const div = document.getElementById("formMaquina");
+  div.classList.toggle("oculto");
+  if (!div.classList.contains("oculto")) {
+    document.getElementById("nMaquinaNombre").value = "";
+    document.getElementById("errorMaquina").classList.add("oculto");
+  }
+}
+
+async function crearMaquina() {
+  const sucursalId = Number(document.getElementById("cuadreSucursal").value);
+  const nombre = document.getElementById("nMaquinaNombre").value.trim();
+  const errorDiv = document.getElementById("errorMaquina");
+  errorDiv.classList.add("oculto");
+  try {
+    await Api.post("/catalogos/maquinas", { sucursal_id: sucursalId, nombre });
+    toggleFormMaquina();
+    await cargarTurnoCuadre(true); // preserva lo que ya se había tecleado en las lecturas
+  } catch (err) {
+    errorDiv.textContent = err.message;
+    errorDiv.classList.remove("oculto");
+  }
+}
+
+async function editarNombreMaquina(id) {
+  const m = maquinasCacheCuadre.find((x) => x.id === id);
+  if (!m) return;
+  const nuevoNombre = await pedirTexto("Nuevo nombre para la máquina:", "Editar máquina", { valorInicial: m.nombre });
+  if (nuevoNombre === null || nuevoNombre === m.nombre) return;
+  try {
+    await Api.put(`/catalogos/maquinas/${id}`, { nombre: nuevoNombre });
+    await cargarTurnoCuadre(true);
+  } catch (err) {
+    await avisar(err.message, "Error");
+  }
+}
+
+/** Activa o desactiva una máquina (una desactivada deja de aparecer para nuevos cuadres, sin perder su historial). */
+async function toggleActivaMaquina(id, nuevoEstado) {
+  try {
+    await Api.put(`/catalogos/maquinas/${id}`, { activa: nuevoEstado });
+    await cargarTurnoCuadre(true);
+  } catch (err) {
+    await avisar(err.message, "Error");
+  }
+}
+
+/** Si ya tiene lecturas de cuadres, el servidor rechaza el borrado — se ofrece desactivar en su lugar. */
+async function eliminarMaquina(id) {
+  const m = maquinasCacheCuadre.find((x) => x.id === id);
+  if (!m) return;
+  const confirmado = await confirmarAccion(`¿Eliminar definitivamente la máquina "${m.nombre}"? Esta acción no se puede deshacer.`, "Eliminar máquina");
+  if (!confirmado) return;
+  try {
+    await Api.delete(`/catalogos/maquinas/${id}`);
+    await cargarTurnoCuadre(true);
+  } catch (err) {
+    if (err.message && err.message.includes("Desactívala")) {
+      const desactivar = await confirmarAccion(`${err.message}\n\n¿Quieres desactivarla ahora? Dejará de aparecer para nuevos cuadres, sin perder su historial.`, "Desactivar máquina");
+      if (desactivar) {
+        try {
+          await Api.put(`/catalogos/maquinas/${id}`, { activa: false });
+          await cargarTurnoCuadre(true);
+        } catch (err2) {
+          await avisar(err2.message, "Error");
+        }
+      }
+      return;
+    }
+    await avisar(err.message, "Error");
+  }
+}
+
+/** Recalcula litros/montos en vivo a medida que se llenan las lecturas, y marca en rojo salida < entrada. */
+function recalcularCuadre() {
+  let litrosPrecioTotal = 0;
+
+  const marcarError = (i, litrosCell, filaError, mensaje) => {
+    litrosCell.textContent = "Inválido";
+    litrosCell.style.color = "var(--rojo)";
+    document.getElementById(`filaErrorTexto-${i}`).textContent = mensaje;
+    filaError.classList.remove("oculto");
+  };
+
+  lecturasCuadre.forEach((l, i) => {
+    const entradaInput = document.getElementById(`entrada-${i}`);
+    const salidaInput = document.getElementById(`salida-${i}`);
+    const litrosCell = document.getElementById(`litros-${i}`);
+    const filaError = document.getElementById(`filaError-${i}`);
+
+    if (entradaInput.value === "" || salidaInput.value === "") {
+      litrosCell.textContent = "-";
+      litrosCell.style.color = "";
+      filaError.classList.add("oculto");
+      return;
+    }
+    const entrada = Number(entradaInput.value);
+    const salida = Number(salidaInput.value);
+    if (entrada < 0 || salida < 0) {
+      marcarError(i, litrosCell, filaError, "Las lecturas no pueden ser negativas.");
+      return;
+    }
+    if (salida < entrada) {
+      marcarError(i, litrosCell, filaError, "La salida no puede ser menor a la entrada.");
+      return;
+    }
+    const precioObj = preciosCacheCuadre.find((p) => p.combustible_id === l.combustible_id);
+    if (!precioObj) {
+      marcarError(i, litrosCell, filaError, "No hay un precio configurado para este combustible en esta sucursal.");
+      return;
+    }
+    filaError.classList.add("oculto");
+    const litros = Math.round((salida - entrada) * 10) / 10;
+    litrosCell.textContent = fmt(litros);
+    litrosCell.style.color = "";
+
+    // Redondeado por línea igual que el servidor, para que la vista previa coincida
+    // exactamente con lo que va a quedar guardado.
+    const monto = Math.round(litros * Number(precioObj.precio_clp_litro) * 100) / 100;
+    litrosPrecioTotal += monto;
+  });
+
+  const tarjeta = Number(document.getElementById("cuadreTarjeta").value) || 0;
+  const diferencia = Math.round((litrosPrecioTotal - (cuadreInfo.efectivo_total + tarjeta + cuadreInfo.descuentos_total)) * 100) / 100;
+
+  document.getElementById("statLitrosPrecio").textContent = "$" + fmt(litrosPrecioTotal);
+  document.getElementById("cuadreDiferencia").innerHTML =
+    `Diferencia: <strong style="color:${colorDiferencia(diferencia)};">$${fmt(diferencia)}</strong>`;
+}
+
+/** Valida y arma el array de lecturas leyendo el DOM en vivo (no depende de un flag que haya
+ * quedado de un recalcularCuadre() anterior). Devuelve {lecturas} o {error}. */
+function validarYArmarLecturasCuadre() {
+  const filasTocadas = lecturasCuadre
+    .map((l, i) => ({
+      maquina_id: l.maquina_id,
+      combustible_id: l.combustible_id,
+      lectura_entrada: document.getElementById(`entrada-${i}`).value,
+      lectura_salida: document.getElementById(`salida-${i}`).value,
+    }))
+    .filter((l) => l.lectura_entrada !== "" || l.lectura_salida !== "");
+
+  const incompleta = filasTocadas.find((l) => l.lectura_entrada === "" || l.lectura_salida === "");
+  if (incompleta) return { error: "Hay una lectura con solo uno de los dos valores — completa entrada y salida, o deja ambos vacíos." };
+
+  const lecturas = filasTocadas.map((l) => ({ ...l, lectura_entrada: Number(l.lectura_entrada), lectura_salida: Number(l.lectura_salida) }));
+
+  if (lecturas.some((l) => l.lectura_entrada < 0 || l.lectura_salida < 0)) {
+    return { error: "Corrige las lecturas marcadas en rojo: no pueden ser negativas." };
+  }
+  if (lecturas.some((l) => l.lectura_salida < l.lectura_entrada)) {
+    return { error: "Corrige las lecturas marcadas en rojo: la salida no puede ser menor a la entrada." };
+  }
+  if (lecturas.some((l) => !preciosCacheCuadre.some((p) => p.combustible_id === l.combustible_id))) {
+    return { error: "Corrige las lecturas marcadas en rojo: hay un combustible sin precio configurado en esta sucursal." };
+  }
+  if (lecturas.length === 0) {
+    return { error: "Ingresa al menos una lectura (entrada y salida) antes de continuar." };
+  }
+  return { lecturas };
+}
+
+/** Valida el monto de tarjeta ingresado; si es válido lo devuelve como número, si no muestra el error y devuelve null. */
+function leerTarjetaCuadre(errorDiv) {
+  const tarjetaInput = document.getElementById("cuadreTarjeta");
+  if (tarjetaInput.value === "" || Number(tarjetaInput.value) < 0) {
+    errorDiv.textContent = "Ingresa el monto de tarjeta informado por la máquina de tarjetas (0 o mayor).";
+    errorDiv.classList.remove("oculto");
+    return null;
+  }
+  return Number(tarjetaInput.value);
+}
+
+async function cerrarTurno() {
+  const errorDiv = document.getElementById("errorCuadre");
+  errorDiv.classList.add("oculto");
+
+  const { lecturas, error } = validarYArmarLecturasCuadre();
+  if (error) {
+    errorDiv.textContent = error;
+    errorDiv.classList.remove("oculto");
+    return;
+  }
+  const tarjetaTotal = leerTarjetaCuadre(errorDiv);
+  if (tarjetaTotal === null) return;
+
+  const fecha = document.getElementById("cuadreFecha").value;
+  const confirmado = await confirmarAccion(`¿Cerrar el turno ${NOMBRE_TURNO[cuadreInfo.turno]} del ${fecha}? Esta acción no se puede deshacer.`, "Cerrar turno");
+  if (!confirmado) return;
+
+  try {
+    await Api.post("/cuadres", {
+      sucursal_id: Number(document.getElementById("cuadreSucursal").value),
+      fecha,
+      turno: cuadreInfo.turno,
+      tarjeta_total: tarjetaTotal,
+      lecturas,
+    });
+    await avisar("Turno cerrado correctamente.", "Listo");
+    await cargarTurnoCuadre();
+  } catch (err) {
+    errorDiv.textContent = err.message;
+    errorDiv.classList.remove("oculto");
+  }
+}
+
+/** Guarda cambios sobre un cuadre ya cerrado (solo disponible si es el más reciente de la
+ * sucursal). Recalcula todo en el servidor y queda marcado como editado. */
+async function guardarEdicionCuadre() {
+  const errorDiv = document.getElementById("errorCuadre");
+  errorDiv.classList.add("oculto");
+
+  const { lecturas, error } = validarYArmarLecturasCuadre();
+  if (error) {
+    errorDiv.textContent = error;
+    errorDiv.classList.remove("oculto");
+    return;
+  }
+  const tarjetaTotal = leerTarjetaCuadre(errorDiv);
+  if (tarjetaTotal === null) return;
+
+  const confirmado = await confirmarAccion("¿Guardar los cambios de este cuadre? Va a quedar marcado como editado.", "Guardar cambios");
+  if (!confirmado) return;
+
+  try {
+    await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, lecturas });
+    await avisar("Cambios guardados.", "Listo");
+    await cargarTurnoCuadre();
+  } catch (err) {
+    errorDiv.textContent = err.message;
+    errorDiv.classList.remove("oculto");
+  }
+}
+
+// ---------- Historial de cuadres ----------
+async function cargarHistorialCuadres() {
+  const cont = document.getElementById("tab-historial-cuadres");
+  await cargarCatalogos();
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  cont.innerHTML = `
+    <div class="tarjeta">
+      <div class="grid-2">
+        <div><label>Desde</label><input type="date" id="hcDesde"></div>
+        <div><label>Hasta</label><input type="date" id="hcHasta"></div>
+        <div><label>Sucursal</label><select id="hcSucursal"><option value="">Todas</option>${opcionesSucursal}</select></div>
+      </div>
+      <button class="secundario" style="margin-top:10px;" onclick="buscarHistorialCuadres()">Filtrar</button>
+      <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosHistorialCuadres()">Limpiar filtros</button>
+    </div>
+    <div class="tarjeta"><div id="tablaHistorialCuadres">${skeletonLineas(6)}</div></div>`;
+  buscarHistorialCuadres();
+}
+
+function limpiarFiltrosHistorialCuadres() {
+  document.getElementById("hcDesde").value = "";
+  document.getElementById("hcHasta").value = "";
+  document.getElementById("hcSucursal").value = "";
+  buscarHistorialCuadres();
+}
+
+async function buscarHistorialCuadres() {
+  const desde = document.getElementById("hcDesde").value;
+  const hasta = document.getElementById("hcHasta").value;
+  const sucursalId = document.getElementById("hcSucursal").value;
+  const params = new URLSearchParams();
+  if (desde) params.set("desde", desde);
+  if (hasta) params.set("hasta", hasta);
+  if (sucursalId) params.set("sucursal_id", sucursalId);
+
+  const cont = document.getElementById("tablaHistorialCuadres");
+  cont.innerHTML = skeletonLineas(6);
+  const rows = await Api.get(`/cuadres?${params.toString()}`);
+
+  cont.innerHTML = `
+    <table>
+      <tr><th>Fecha</th><th>Turno</th><th>Sucursal</th><th>Litros</th><th>Litros × precio</th><th>Tarjeta</th><th>Efectivo</th><th>Descuentos</th><th>Suma (T+E+D)</th><th>Diferencia</th><th>Cerrado por</th></tr>
+      ${rows.map((c) => {
+        const suma = Number(c.tarjeta_total) + Number(c.efectivo_total) + Number(c.descuentos_total);
+        const diferencia = Number(c.diferencia);
+        return `<tr>
+          <td>${new Date(c.turno_fin).toLocaleDateString("es-CL")}</td>
+          <td>${NOMBRE_TURNO[c.turno] || c.turno}</td>
+          <td>${c.sucursal_nombre}</td>
+          <td>${fmt(c.litros_totales)}</td>
+          <td>$${fmt(c.litros_precio_total)}</td>
+          <td>$${fmt(c.tarjeta_total)}</td>
+          <td>$${fmt(c.efectivo_total)}</td>
+          <td>$${fmt(c.descuentos_total)}</td>
+          <td>$${fmt(suma)}</td>
+          <td style="color:${colorDiferencia(diferencia)};">$${fmt(diferencia)}</td>
+          <td>${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}${c.editado_en ? ' <span style="color:var(--dorado); font-weight:600;" title="Editado el ' + new Date(c.editado_en).toLocaleString("es-CL") + '">✏️ Editado</span>' : ""}</td>
+        </tr>`;
+      }).join("") || '<tr><td colspan="11">Sin registros</td></tr>'}
+    </table>
+    <p class="chico" style="margin-top:8px;">Suma (T+E+D) = Tarjeta + Efectivo + Descuentos. Diferencia = Litros × precio − Suma.</p>`;
+}
+
+// ---------- Reportes de cuadres ----------
+async function cargarReportesCuadres() {
+  const cont = document.getElementById("tab-reportes-cuadres");
+  const hoy = fechaLocalISO(new Date());
+  cont.innerHTML = `
+    <div class="tarjeta">
+      <div class="grid-2">
+        <div><label>Desde</label><input type="date" id="rcDesde" value="${hoy}"></div>
+        <div><label>Hasta</label><input type="date" id="rcHasta" value="${hoy}"></div>
+      </div>
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="secundario" onclick="filtroReporteCuadresRapido('hoy')">Hoy</button>
+        <button class="secundario" onclick="filtroReporteCuadresRapido('semana')">Esta semana</button>
+        <button class="secundario" onclick="filtroReporteCuadresRapido('mes')">Este mes</button>
+        <button class="secundario" onclick="filtroReporteCuadresRapido('todo')">Todo (histórico)</button>
+        <button class="primario" style="margin-top:0;" onclick="buscarReportesCuadres()">Filtrar</button>
+        <button class="secundario" onclick="limpiarFiltrosReportesCuadres()">Limpiar filtros</button>
+      </div>
+    </div>
+    <div id="resultadoReportesCuadres"></div>`;
+  buscarReportesCuadres();
+}
+
+function limpiarFiltrosReportesCuadres() {
+  filtroReporteCuadresRapido("hoy");
+}
+
+function filtroReporteCuadresRapido(tipo) {
+  const { desde, hasta } = rangoRapido(tipo);
+  document.getElementById("rcDesde").value = desde;
+  document.getElementById("rcHasta").value = hasta;
+  buscarReportesCuadres();
+}
+
+async function buscarReportesCuadres() {
+  const desde = document.getElementById("rcDesde").value;
+  const hasta = document.getElementById("rcHasta").value;
+  const params = new URLSearchParams();
+  if (desde) params.set("desde", desde);
+  if (hasta) params.set("hasta", hasta);
+
+  const cont = document.getElementById("resultadoReportesCuadres");
+  cont.innerHTML = `<div class="tarjeta">${skeletonLineas(4)}</div>`;
+  const data = await Api.get(`/cuadres/reportes?${params.toString()}`);
+
+  const rangoTexto = desde || hasta ? `Período: ${desde || "el inicio"} a ${hasta || "hoy"}` : "Todo el histórico";
+  const diferenciaNeta = Number(data.diferencia_neta);
+
+  cont.innerHTML = `
+    <div class="tarjeta">
+      <p class="chico">${rangoTexto}</p>
+      <h3>Totales</h3>
+      <div class="grid-2" style="margin-top:10px;">
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Turnos cerrados</div><div style="font-size:17px; font-weight:600;">${data.turnos_cerrados}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Litros totales</div><div style="font-size:17px; font-weight:600;">${fmt(data.litros_totales)} L</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia neta (con signo)</div><div style="font-size:17px; font-weight:600; color:${colorDiferencia(diferenciaNeta)};">$${fmt(diferenciaNeta)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia absoluta acumulada</div><div style="font-size:17px; font-weight:600;">$${fmt(data.diferencia_absoluta)}</div></div>
+      </div>
+      <p class="chico" style="margin-top:10px;">La neta es el impacto real en la caja del período. La absoluta suma el error de cada turno sin cancelar positivos con negativos.</p>
+    </div>
+    <div class="tarjeta">
+      <h3>Por sucursal y combustible</h3>
+      <table>
+        <tr><th>Sucursal</th><th>Combustible</th><th>Litros</th><th>Monto total</th><th>Precio promedio $/L</th></tr>
+        ${data.desglose.map((d) => `<tr><td>${d.sucursal}</td><td>${d.combustible}</td><td>${fmt(d.litros)}</td><td>$${fmt(d.monto_total)}</td><td>$${fmt(d.precio_promedio)}</td></tr>`).join("") || '<tr><td colspan="5">Sin datos</td></tr>'}
+      </table>
+      <p class="chico" style="margin-top:8px;">El precio promedio es monto total ÷ litros — ponderado automáticamente si el período cruza un cambio de precio.</p>
+    </div>`;
+}
+
+// ---------- Descargas ----------
+let bomberosCacheDescargas = [];
+
+async function cargarDescargas() {
+  const cont = document.getElementById("tab-descargas");
+  const [, usuarios] = await Promise.all([cargarCatalogos(), Api.get("/usuarios")]);
+  bomberosCacheDescargas = usuarios;
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  cont.innerHTML = `
+    <div class="tarjeta">
+      <button class="secundario" onclick="toggleFormDescarga()">+ Registrar descarga</button>
+      <div id="formDescarga" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc;">
+        <div class="grid-2">
+          <div><label>Sucursal</label><select id="nDescargaSucursal" onchange="actualizarBomberosDescarga()">${opcionesSucursal}</select></div>
+          <div><label>Bombero</label><select id="nDescargaBombero"></select></div>
+          <div><label>Monto</label><input id="nDescargaMonto" type="number" step="1" placeholder="100000"></div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px;">
+          <button class="primario" style="margin-top:0;" onclick="crearDescarga()">Guardar</button>
+          <button class="secundario" onclick="toggleFormDescarga()">Cancelar</button>
+        </div>
+        <div id="errorDescarga" class="mensaje-error oculto"></div>
+      </div>
+    </div>
+    <div class="tarjeta">
+      <h3>Historial</h3>
+      <div class="grid-2">
+        <div><label>Desde</label><input type="date" id="descargaDesde"></div>
+        <div><label>Hasta</label><input type="date" id="descargaHasta"></div>
+        <div><label>Sucursal</label><select id="descargaFiltroSucursal" onchange="actualizarBomberosFiltroDescargas()"><option value="">Todas</option>${opcionesSucursal}</select></div>
+        <div><label>Bombero</label><select id="descargaFiltroBombero"><option value="">Todos</option></select></div>
+      </div>
+      <button class="secundario" style="margin-top:10px;" onclick="buscarDescargas()">Filtrar</button>
+      <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosDescargas()">Limpiar filtros</button>
+      <div id="tablaDescargas" style="margin-top:10px;">${skeletonLineas(5)}</div>
+    </div>`;
+  actualizarBomberosDescarga();
+  actualizarBomberosFiltroDescargas();
+  buscarDescargas();
+}
+
+/** Muestra u oculta el mini formulario para registrar una descarga nueva. */
+function toggleFormDescarga() {
+  const div = document.getElementById("formDescarga");
+  div.classList.toggle("oculto");
+  if (div.classList.contains("oculto")) {
+    document.getElementById("nDescargaMonto").value = "";
+    document.getElementById("errorDescarga").classList.add("oculto");
+  } else {
+    actualizarBomberosDescarga();
+  }
+}
+
+/** Filtra el selector de bombero del formulario según la sucursal elegida (solo bomberos de esa sucursal). */
+function actualizarBomberosDescarga() {
+  const sucursalId = Number(document.getElementById("nDescargaSucursal").value);
+  const select = document.getElementById("nDescargaBombero");
+  const bomberos = bomberosCacheDescargas.filter((u) => u.rol === "bombero" && u.sucursal_id === sucursalId);
+  select.innerHTML = bomberos.map((u) => `<option value="${u.id}">${u.nombre} ${u.apellido || ""}</option>`).join("") || '<option value="">Sin bomberos en esta sucursal</option>';
+}
+
+/** Igual que actualizarBomberosDescarga() pero para el filtro del historial (incluye "Todos"). */
+function actualizarBomberosFiltroDescargas() {
+  const sucursalId = document.getElementById("descargaFiltroSucursal").value;
+  const select = document.getElementById("descargaFiltroBombero");
+  const bomberos = sucursalId
+    ? bomberosCacheDescargas.filter((u) => u.rol === "bombero" && u.sucursal_id === Number(sucursalId))
+    : bomberosCacheDescargas.filter((u) => u.rol === "bombero");
+  select.innerHTML = '<option value="">Todos</option>' + bomberos.map((u) => `<option value="${u.id}">${u.nombre} ${u.apellido || ""}</option>`).join("");
+}
+
+async function crearDescarga() {
+  const errorDiv = document.getElementById("errorDescarga");
+  errorDiv.classList.add("oculto");
+  const bomberoId = document.getElementById("nDescargaBombero").value;
+  if (!bomberoId) {
+    errorDiv.textContent = "Selecciona un bombero.";
+    errorDiv.classList.remove("oculto");
+    return;
+  }
+  try {
+    await Api.post("/descargas", {
+      sucursal_id: Number(document.getElementById("nDescargaSucursal").value),
+      bombero_id: Number(bomberoId),
+      monto: Number(document.getElementById("nDescargaMonto").value),
+    });
+    toggleFormDescarga();
+    buscarDescargas();
+  } catch (err) {
+    errorDiv.textContent = err.message;
+    errorDiv.classList.remove("oculto");
+  }
+}
+
+function limpiarFiltrosDescargas() {
+  document.getElementById("descargaDesde").value = "";
+  document.getElementById("descargaHasta").value = "";
+  document.getElementById("descargaFiltroSucursal").value = "";
+  actualizarBomberosFiltroDescargas();
+  buscarDescargas();
+}
+
+async function buscarDescargas() {
+  const desde = document.getElementById("descargaDesde").value;
+  const hasta = document.getElementById("descargaHasta").value;
+  const sucursalId = document.getElementById("descargaFiltroSucursal").value;
+  const bomberoId = document.getElementById("descargaFiltroBombero").value;
+  const params = new URLSearchParams();
+  if (desde) params.set("desde", desde);
+  if (hasta) params.set("hasta", hasta);
+  if (sucursalId) params.set("sucursal_id", sucursalId);
+  if (bomberoId) params.set("bombero_id", bomberoId);
+
+  const cont = document.getElementById("tablaDescargas");
+  cont.innerHTML = skeletonLineas(4);
+  const rows = await Api.get(`/descargas?${params.toString()}`);
+  const total = rows.reduce((acc, d) => acc + Number(d.monto), 0);
+
+  cont.innerHTML = `
+    <p class="chico">Total del período: <strong>$${fmt(total)}</strong> (${rows.length} descargas)</p>
+    <table>
+      <tr><th>Fecha</th><th>Hora</th><th>Sucursal</th><th>Bombero</th><th>Monto</th></tr>
+      ${rows.map((d) => {
+        const fechaHora = new Date(d.creado_en);
+        return `<tr>
+          <td>${fechaHora.toLocaleDateString("es-CL")}</td>
+          <td>${fechaHora.toLocaleTimeString("es-CL")}</td>
+          <td>${d.sucursal_nombre}</td>
+          <td>${d.bombero_nombre} ${d.bombero_apellido || ""}</td>
+          <td>$${fmt(d.monto)}</td>
+        </tr>`;
+      }).join("") || '<tr><td colspan="5">Sin registros</td></tr>'}
+    </table>`;
 }
 
 // Iniciar en la pestaña de reportes

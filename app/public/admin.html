@@ -18,12 +18,28 @@
       </div>
     </div>
     <nav class="sidebar-nav">
-      <button data-tab="reportes" class="activo" onclick="cambiarTab('reportes')">Reportes</button>
-      <button data-tab="historial" onclick="cambiarTab('historial')">Historial</button>
-      <button data-tab="socios" onclick="cambiarTab('socios')">Socios</button>
-      <button data-tab="bomberos" onclick="cambiarTab('bomberos')">Usuarios</button>
-      <button data-tab="reglas" onclick="cambiarTab('reglas')">Reglas de descuento</button>
-      <button data-tab="precios" onclick="cambiarTab('precios')">Precios</button>
+      <div class="nav-selector-movil">
+        <button class="nav-selector-btn activo" data-seccion="socios" onclick="cambiarSeccion('socios')">Socios</button>
+        <button class="nav-selector-btn" data-seccion="caja" onclick="cambiarSeccion('caja')">Caja</button>
+      </div>
+
+      <div class="nav-seccion activa-movil" data-seccion="socios">
+        <div class="nav-seccion-titulo">Socios</div>
+        <button data-tab="reportes" class="activo" onclick="cambiarTab('reportes')">Reportes</button>
+        <button data-tab="historial" onclick="cambiarTab('historial')">Historial</button>
+        <button data-tab="socios" onclick="cambiarTab('socios')">Socios</button>
+        <button data-tab="bomberos" onclick="cambiarTab('bomberos')">Usuarios</button>
+        <button data-tab="reglas" onclick="cambiarTab('reglas')">Reglas de descuento</button>
+        <button data-tab="precios" onclick="cambiarTab('precios')">Precios</button>
+      </div>
+
+      <div class="nav-seccion" data-seccion="caja">
+        <div class="nav-seccion-titulo">Caja</div>
+        <button data-tab="cuadre-caja" onclick="cambiarTab('cuadre-caja')">Cuadre de caja</button>
+        <button data-tab="historial-cuadres" onclick="cambiarTab('historial-cuadres')">Historial de cuadres</button>
+        <button data-tab="reportes-cuadres" onclick="cambiarTab('reportes-cuadres')">Reportes de cuadres</button>
+        <button data-tab="descargas" onclick="cambiarTab('descargas')">Descargas</button>
+      </div>
     </nav>
     <button class="sidebar-logout" onclick="Api.cerrarSesion()">Cerrar sesión</button>
   </aside>
@@ -35,6 +51,10 @@
     <div id="tab-bomberos" class="tab-contenido oculto"></div>
     <div id="tab-reglas" class="tab-contenido oculto"></div>
     <div id="tab-precios" class="tab-contenido oculto"></div>
+    <div id="tab-cuadre-caja" class="tab-contenido oculto"></div>
+    <div id="tab-historial-cuadres" class="tab-contenido oculto"></div>
+    <div id="tab-reportes-cuadres" class="tab-contenido oculto"></div>
+    <div id="tab-descargas" class="tab-contenido oculto"></div>
   </div>
 </div>
 

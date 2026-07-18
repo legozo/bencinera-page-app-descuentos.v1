@@ -11,6 +11,8 @@ const usuariosRoutes = require("./routes/usuarios");
 const catalogosRoutes = require("./routes/catalogos");
 const reportesRoutes = require("./routes/reportes");
 const offlineRoutes = require("./routes/offline");
+const descargasRoutes = require("./routes/descargas");
+const cuadresRoutes = require("./routes/cuadres");
 
 const app = express();
 app.use(cors());
@@ -23,6 +25,8 @@ app.use("/api/usuarios", usuariosRoutes);
 app.use("/api/catalogos", catalogosRoutes);
 app.use("/api/reportes", reportesRoutes);
 app.use("/api/offline", offlineRoutes);
+app.use("/api/descargas", descargasRoutes);
+app.use("/api/cuadres", cuadresRoutes);
 
 app.get("/api/salud", (req, res) => res.json({ ok: true }));
 
