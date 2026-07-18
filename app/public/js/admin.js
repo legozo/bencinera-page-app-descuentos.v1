@@ -1348,15 +1348,21 @@ function renderFormularioCuadre(valoresPrevios) {
     const valorSalida = guardado ? guardado.salida : (l.lectura_salida_guardada ?? "");
     const disabled = soloLectura ? "disabled" : "";
     const nuevaMaquina = i > 0 && l.maquina_id !== lecturasCuadre[i - 1].maquina_id;
+    // grupo-inicio/grupo-fin delimitan, en la vista de tarjetas de móvil, todas las filas de
+    // una misma máquina para que se vean como una sola tarjeta (separada de la siguiente
+    // máquina), en vez de una tarjeta suelta por cada combustible.
+    const inicioGrupo = i === 0 || nuevaMaquina;
+    const finGrupo = i === lecturasCuadre.length - 1 || l.maquina_id !== lecturasCuadre[i + 1].maquina_id;
+    const clasesFila = [nuevaMaquina && "nueva-maquina", inicioGrupo && "grupo-inicio", finGrupo && "grupo-fin"].filter(Boolean).join(" ");
     return `
-    <tr${nuevaMaquina ? ' class="nueva-maquina"' : ""}>
+    <tr class="${clasesFila}">
       <td data-etiqueta="Máquina">${l.maquina_nombre}</td>
       <td data-etiqueta="Combustible">${l.combustible_nombre}</td>
       <td data-etiqueta="Entrada"><input type="number" step="0.1" min="0" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
       <td data-etiqueta="Salida"><input type="number" step="0.1" min="0" id="salida-${i}" value="${valorSalida}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
       <td data-etiqueta="Litros" id="litros-${i}">-</td>
     </tr>
-    <tr id="filaError-${i}" class="oculto"><td colspan="5" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
+    <tr id="filaError-${i}" class="oculto${finGrupo ? " grupo-fin" : ""}"><td colspan="5" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
   }).join("");
 
   const valorTarjeta = valoresPrevios ? valoresPrevios.tarjeta : (cuadreInfo.existe ? cuadreInfo.cuadre.tarjeta_total : "");

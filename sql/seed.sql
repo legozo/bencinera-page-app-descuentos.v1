@@ -1,18 +1,27 @@
 -- Datos iniciales
 
-INSERT INTO sucursales (nombre, direccion) VALUES
+-- Estos 3 INSERT solo cargan datos de ejemplo la PRIMERA vez (tabla vacía), no en cada
+-- reinicio del contenedor. Antes usaban "ON CONFLICT (nombre) DO NOTHING", pero eso deja de
+-- proteger apenas alguien renombra la fila desde el panel admin (sucursales y tipos de socio
+-- se pueden renombrar): al no calzar más el nombre, el siguiente reinicio volvía a insertar
+-- una fila nueva con el nombre original, resucitando un duplicado "fantasma".
+INSERT INTO sucursales (nombre, direccion)
+SELECT * FROM (VALUES
     ('Sucursal 1', 'Por definir'),
     ('Sucursal 2', 'Por definir')
-ON CONFLICT (nombre) DO NOTHING;
+) AS v(nombre, direccion)
+WHERE NOT EXISTS (SELECT 1 FROM sucursales);
 
-INSERT INTO combustibles (nombre) VALUES
-    ('93'), ('95'), ('97'), ('diesel')
-ON CONFLICT (nombre) DO NOTHING;
+INSERT INTO combustibles (nombre)
+SELECT * FROM (VALUES ('93'), ('95'), ('97'), ('diesel')) AS v(nombre)
+WHERE NOT EXISTS (SELECT 1 FROM combustibles);
 
-INSERT INTO tipos_socio (nombre, descripcion) VALUES
+INSERT INTO tipos_socio (nombre, descripcion)
+SELECT * FROM (VALUES
     ('Tipo 1', 'Socio tipo 1'),
     ('Tipo 2', 'Socio tipo 2')
-ON CONFLICT (nombre) DO NOTHING;
+) AS v(nombre, descripcion)
+WHERE NOT EXISTS (SELECT 1 FROM tipos_socio);
 
 -- Reglas de descuento (CLP por litro)
 -- Tipo 1: $60 en 93 y 95, $50 en diesel

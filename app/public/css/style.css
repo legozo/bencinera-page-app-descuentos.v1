@@ -420,10 +420,23 @@ th { background: #f0f1f3; }
   table.responsivo-movil { min-width: 0; width: 100%; }
   table.responsivo-movil thead tr { display: none; }
   table.responsivo-movil tr {
-    border: 1px solid var(--borde);
-    border-radius: 8px;
-    margin-bottom: 10px;
+    border-left: 1px solid var(--borde);
+    border-right: 1px solid var(--borde);
     padding: 10px 12px;
+  }
+  /* grupo-inicio/grupo-fin hacen que todas las filas de una misma máquina se vean como una
+     sola tarjeta (una tarjeta por máquina), en vez de una tarjeta suelta por combustible. */
+  table.responsivo-movil tr.grupo-inicio {
+    border-top: 1px solid var(--borde);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-top: 10px;
+  }
+  table.responsivo-movil tr.grupo-fin {
+    border-bottom: 1px solid var(--borde);
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    margin-bottom: 10px;
   }
   table.responsivo-movil tr.nueva-maquina { margin-top: 28px; }
   table.responsivo-movil tr.nueva-maquina td { padding-top: 4px; border-top: none; }
