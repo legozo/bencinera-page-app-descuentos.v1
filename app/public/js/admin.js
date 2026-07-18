@@ -674,6 +674,7 @@ async function cargarBomberos() {
           <div><label>Nombre</label><input id="nUserNombre"></div>
           <div><label>Apellido</label><input id="nUserApellido"></div>
           <div><label>Usuario (login)</label><input id="nUserLogin"></div>
+          <div><label>RUT (opcional)</label><input id="nUserRut" placeholder="12345678-9"></div>
           <div><label id="nUserClaveLabel">Clave</label><input id="nUserClave" type="password"></div>
           <div><label>Rol</label>
             <select id="nUserRol" onchange="document.getElementById('bloqueSucursal').classList.toggle('oculto', this.value==='admin')">
@@ -704,6 +705,7 @@ function toggleFormUsuario() {
     document.getElementById("nUserApellido").value = "";
     document.getElementById("nUserLogin").value = "";
     document.getElementById("nUserLogin").disabled = false;
+    document.getElementById("nUserRut").value = "";
     document.getElementById("nUserClave").value = "";
     document.getElementById("nUserClave").disabled = false;
     document.getElementById("nUserClaveLabel").textContent = "Clave";
@@ -732,6 +734,7 @@ function editarUsuario(id) {
   document.getElementById("nUserApellido").value = u.apellido || "";
   document.getElementById("nUserLogin").value = u.usuario;
   document.getElementById("nUserLogin").disabled = true;
+  document.getElementById("nUserRut").value = u.rut ? `${u.rut}-${u.dv}` : "";
   document.getElementById("nUserClave").value = "";
   document.getElementById("nUserClave").disabled = true;
   document.getElementById("nUserClaveLabel").textContent = "Clave (usa \"Cambiar clave\" en la tabla)";
@@ -749,11 +752,12 @@ async function listarUsuarios() {
   ultimosUsuarios = rows;
   document.getElementById("tablaUsuarios").innerHTML = `
     <table>
-      <tr><th>Nombre</th><th>Usuario</th><th>Teléfono</th><th>Rol</th><th>Sucursal</th><th>Activo</th><th>Creado</th><th></th><th></th><th></th><th></th></tr>
+      <tr><th>Nombre</th><th>Usuario</th><th>RUT</th><th>Teléfono</th><th>Rol</th><th>Sucursal</th><th>Activo</th><th>Creado</th><th></th><th></th><th></th><th></th></tr>
       ${rows.map((u) => `
         <tr>
           <td data-etiqueta="Nombre">${u.nombre} ${u.apellido || ""}</td>
           <td data-etiqueta="Usuario">${u.usuario}</td>
+          <td data-etiqueta="RUT">${u.rut ? `${u.rut}-${u.dv}` : "-"}</td>
           <td data-etiqueta="Teléfono">${u.telefono || "-"}</td>
           <td data-etiqueta="Rol">${u.rol}</td>
           <td data-etiqueta="Sucursal">${u.sucursal_nombre || "-"}</td>
@@ -783,11 +787,13 @@ async function crearUsuario() {
   const errorDiv = document.getElementById("errorUsuario");
   errorDiv.classList.add("oculto");
   const rol = document.getElementById("nUserRol").value;
+  const rutInput = document.getElementById("nUserRut").value.trim();
   const datos = {
     nombre: document.getElementById("nUserNombre").value.trim(),
     apellido: document.getElementById("nUserApellido").value.trim(),
     sucursal_id: rol === "bombero" ? Number(document.getElementById("nUserSucursal").value) : null,
     telefono: document.getElementById("nUserTelefono").value.trim(),
+    rut: rutInput || undefined,
   };
   if (!usuarioEditandoId) {
     datos.usuario = document.getElementById("nUserLogin").value.trim();

@@ -17,13 +17,22 @@ CREATE TABLE IF NOT EXISTS usuarios (
     sucursal_id INTEGER REFERENCES sucursales(id),
     activo BOOLEAN NOT NULL DEFAULT true,
     creado_en TIMESTAMP NOT NULL DEFAULT now(),
-    telefono VARCHAR(30)
+    telefono VARCHAR(30),
+    rut VARCHAR(9),
+    dv CHAR(1)
 );
 
 -- Red de seguridad por si esta tabla ya existía de una instalación anterior a este cambio
 -- (antes "usuarios" solo tenía un campo "nombre" único, sin apellido separado, ni teléfono).
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS apellido VARCHAR(100);
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono VARCHAR(30);
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rut VARCHAR(9);
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS dv CHAR(1);
+
+-- RUT opcional (a diferencia del de socios, que es obligatorio) — mientras se completa el de
+-- los usuarios que ya existían antes de este cambio. NULL no choca con la restricción UNIQUE
+-- (Postgres permite múltiples NULL), así que varios usuarios sin RUT conviven sin problema.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_rut ON usuarios(rut) WHERE rut IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS tipos_socio (
     id SERIAL PRIMARY KEY,

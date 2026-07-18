@@ -2,18 +2,23 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { generarToken } = require("../auth");
+const { validarRut } = require("../rut");
 
 const router = express.Router();
 
+/** Acepta como identificador el "usuario" de login O el RUT (con o sin puntos/guion) —
+ * útil mientras conviven usuarios con y sin RUT cargado. Si lo tecleado no tiene forma de
+ * RUT válido, esa mitad del OR simplemente no calza con nadie. */
 router.post("/login", async (req, res) => {
   const { usuario, password } = req.body || {};
   if (!usuario || !password) {
     return res.status(400).json({ error: "Usuario y clave son obligatorios." });
   }
 
+  const { valido, cuerpo, dv } = validarRut(usuario);
   const { rows } = await db.query(
-    "SELECT * FROM usuarios WHERE usuario = $1 AND activo = true",
-    [usuario]
+    "SELECT * FROM usuarios WHERE activo = true AND (usuario = $1 OR (rut = $2 AND dv = $3))",
+    [usuario, valido ? cuerpo : null, valido ? dv : null]
   );
   const user = rows[0];
   if (!user) return res.status(401).json({ error: "Usuario o clave incorrectos." });
