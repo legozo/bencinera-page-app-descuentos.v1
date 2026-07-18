@@ -173,10 +173,10 @@ router.get("/turno", async (req, res) => {
   const info = turnoInfo(fecha, turno);
   if (!info) return res.status(400).json({ error: "Fecha o turno inválidos." });
   const { inicio, fin } = info;
-
-  if (fin.getTime() > Date.now()) {
-    return res.status(400).json({ error: "Ese turno todavía no ha terminado." });
-  }
+  // Ya no se bloquea consultar/cerrar un turno que todavía no termina — solo se informa al
+  // frontend para que muestre una advertencia (el admin puede necesitar cerrar antes, ej. si
+  // el turno se corta por otra razón operativa).
+  const turnoNoTerminado = fin.getTime() > Date.now();
 
   const existente = await db.query(
     `SELECT c.*, u.nombre AS cerrado_por_nombre, u.apellido AS cerrado_por_apellido
@@ -206,6 +206,7 @@ router.get("/turno", async (req, res) => {
       turno,
       turno_inicio: inicio,
       turno_fin: fin,
+      turno_no_terminado: turnoNoTerminado,
       efectivo_total: Number(cuadre.efectivo_total),
       descuentos_total: Number(cuadre.descuentos_total),
       precios,
@@ -245,7 +246,7 @@ router.get("/turno", async (req, res) => {
     });
   });
 
-  res.json({ existe: false, turno, turno_inicio: inicio, turno_fin: fin, lecturas, precios, ...totales });
+  res.json({ existe: false, turno, turno_inicio: inicio, turno_fin: fin, turno_no_terminado: turnoNoTerminado, lecturas, precios, ...totales });
 });
 
 /** Cierra un turno nuevo (fecha+turno elegidos, no tiene que ser "el de ahora"). */
@@ -258,9 +259,8 @@ router.post("/", async (req, res) => {
   const info = turnoInfo(fecha, turno);
   if (!info) return res.status(400).json({ error: "Fecha o turno inválidos." });
   const { inicio: turnoInicio, fin: turnoFin } = info;
-  if (turnoFin.getTime() > Date.now()) {
-    return res.status(400).json({ error: "Ese turno todavía no ha terminado." });
-  }
+  // Cerrar antes de que el turno termine ya no está prohibido — el frontend advierte al
+  // admin antes de confirmar, pero el servidor no lo bloquea.
 
   const errorLecturas = validarLecturas(lecturas);
   if (errorLecturas) return res.status(400).json({ error: errorLecturas });

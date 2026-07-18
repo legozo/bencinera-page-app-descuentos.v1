@@ -1333,8 +1333,15 @@ function renderFormularioCuadre(valoresPrevios) {
     avisoEstado = `<div class="tarjeta"><p class="chico" style="margin:0;">${texto}</p></div>`;
   }
 
+  let avisoNoTerminado = "";
+  if (cuadreInfo.turno_no_terminado) {
+    const finTexto = new Date(cuadreInfo.turno_fin).toLocaleString("es-CL");
+    avisoNoTerminado = `<div class="tarjeta" style="background:#fff8e1; border:1px solid var(--dorado);"><p class="chico" style="margin:0;">⚠️ Este turno todavía no termina (termina el ${finTexto}). Si cierras ahora, puede que falten movimientos por registrar.</p></div>`;
+  }
+
   cont.innerHTML = `
     ${avisoEstado}
+    ${avisoNoTerminado}
     <div class="tarjeta">
       <button class="secundario" onclick="toggleFormMaquina()">+ Agregar máquina</button>
       <div id="formMaquina" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc; display:flex; gap:10px; align-items:flex-end;">
@@ -1560,7 +1567,12 @@ async function cerrarTurno() {
   if (tarjetaTotal === null) return;
 
   const fecha = document.getElementById("cuadreFecha").value;
-  const confirmado = await confirmarAccion(`¿Cerrar el turno ${NOMBRE_TURNO[cuadreInfo.turno]} del ${fecha}? Esta acción no se puede deshacer.`, "Cerrar turno");
+  let mensajeConfirmacion = `¿Cerrar el turno ${NOMBRE_TURNO[cuadreInfo.turno]} del ${fecha}? Esta acción no se puede deshacer.`;
+  if (cuadreInfo.turno_no_terminado) {
+    const finTexto = new Date(cuadreInfo.turno_fin).toLocaleString("es-CL");
+    mensajeConfirmacion = `⚠️ Este turno todavía no termina (termina el ${finTexto}). ` + mensajeConfirmacion;
+  }
+  const confirmado = await confirmarAccion(mensajeConfirmacion, "Cerrar turno");
   if (!confirmado) return;
 
   try {
@@ -1861,18 +1873,50 @@ async function buscarDescargas() {
   cont.innerHTML = `
     <p class="chico">Total del período: <strong>$${fmt(total)}</strong> (${rows.length} descargas)</p>
     <table>
-      <tr><th>Fecha</th><th>Hora</th><th>Sucursal</th><th>Bombero</th><th>Monto</th></tr>
+      <tr><th>Fecha</th><th>Hora</th><th>Sucursal</th><th>Bombero</th><th>Monto</th><th></th></tr>
       ${rows.map((d) => {
         const fechaHora = new Date(d.creado_en);
+        const fechaHoraTexto = `${fechaHora.toLocaleDateString("es-CL")} ${fechaHora.toLocaleTimeString("es-CL")}`;
         return `<tr>
           <td>${fechaHora.toLocaleDateString("es-CL")}</td>
           <td>${fechaHora.toLocaleTimeString("es-CL")}</td>
           <td>${d.sucursal_nombre}</td>
           <td>${d.bombero_nombre} ${d.bombero_apellido || ""}</td>
           <td>$${fmt(d.monto)}</td>
+          <td><span style="color:var(--rojo); cursor:pointer;" onclick="eliminarDescarga(${d.id}, '${fechaHoraTexto}', ${d.monto})" title="Eliminar">🗑️</span></td>
         </tr>`;
-      }).join("") || '<tr><td colspan="5">Sin registros</td></tr>'}
+      }).join("") || '<tr><td colspan="6">Sin registros</td></tr>'}
     </table>`;
+}
+
+/** Elimina una descarga (ej. error de digitación). Si ya cayó dentro de la ventana de un
+ * cuadre cerrado, advierte antes de confirmar en vez de bloquear el borrado. */
+async function eliminarDescarga(id, fechaHoraTexto, monto) {
+  let impacto;
+  try {
+    impacto = await Api.get(`/descargas/${id}/impacto`);
+  } catch (err) {
+    await avisar(err.message, "Error");
+    return;
+  }
+
+  let mensaje = `¿Eliminar la descarga de $${fmt(monto)} del ${fechaHoraTexto}?`;
+  if (impacto.afecta_cuadre) {
+    const turnoTexto = `${NOMBRE_TURNO[impacto.turno]} del ${new Date(impacto.turno_inicio).toLocaleDateString("es-CL")}`;
+    mensaje += impacto.editable
+      ? ` ⚠️ Esta descarga ya forma parte del cuadre del turno ${turnoTexto}. Si la eliminas, edita ese cuadre después para que su total quede correcto.`
+      : ` ⚠️ Esta descarga ya forma parte de un cuadre cerrado (turno ${turnoTexto}) que ya no se puede editar. Al eliminarla, el total de ese cuadre quedará desactualizado y no hay forma de corregirlo desde el sistema.`;
+  }
+
+  const confirmado = await confirmarAccion(mensaje, "Eliminar descarga");
+  if (!confirmado) return;
+
+  try {
+    await Api.delete(`/descargas/${id}`);
+    buscarDescargas();
+  } catch (err) {
+    await avisar(err.message, "Error");
+  }
 }
 
 // Iniciar en la pestaña de reportes

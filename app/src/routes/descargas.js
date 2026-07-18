@@ -63,4 +63,42 @@ router.post("/", async (req, res) => {
   }
 });
 
+/**
+ * Antes de borrar, informa si esta descarga ya cayó dentro de la ventana horaria de un cuadre
+ * cerrado (y si ese cuadre todavía se puede editar) para que el frontend arme la advertencia
+ * correcta en el modal de confirmación.
+ */
+router.get("/:id/impacto", async (req, res) => {
+  const descargaRes = await db.query("SELECT * FROM descargas WHERE id = $1", [req.params.id]);
+  const descarga = descargaRes.rows[0];
+  if (!descarga) return res.status(404).json({ error: "Descarga no encontrada." });
+
+  const cuadreRes = await db.query(
+    "SELECT * FROM cuadres_caja WHERE sucursal_id = $1 AND turno_inicio <= $2 AND turno_fin > $2",
+    [descarga.sucursal_id, descarga.creado_en]
+  );
+  const cuadre = cuadreRes.rows[0];
+  if (!cuadre) return res.json({ afecta_cuadre: false });
+
+  const posteriorRes = await db.query(
+    "SELECT EXISTS(SELECT 1 FROM cuadres_caja WHERE sucursal_id = $1 AND turno_fin > $2) AS hay",
+    [cuadre.sucursal_id, cuadre.turno_fin]
+  );
+  res.json({
+    afecta_cuadre: true,
+    editable: !posteriorRes.rows[0].hay,
+    turno: cuadre.turno,
+    turno_inicio: cuadre.turno_inicio,
+    turno_fin: cuadre.turno_fin,
+  });
+});
+
+/** Eliminar una descarga (para corregir un error de digitación). No tiene registros
+ * dependientes en otras tablas, así que se borra directo sin necesidad de manejar FK. */
+router.delete("/:id", async (req, res) => {
+  const { rowCount } = await db.query("DELETE FROM descargas WHERE id = $1", [req.params.id]);
+  if (rowCount === 0) return res.status(404).json({ error: "Descarga no encontrada." });
+  res.json({ ok: true });
+});
+
 module.exports = router;
