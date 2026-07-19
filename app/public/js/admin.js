@@ -139,12 +139,15 @@ function fechaLocalISO(d) {
 
 async function cargarReportes() {
   const cont = document.getElementById("tab-reportes");
+  await cargarCatalogos();
   const hoy = fechaLocalISO(new Date());
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
         <div><label>Desde</label><input type="date" id="reporteDesde" value="${hoy}"></div>
         <div><label>Hasta</label><input type="date" id="reporteHasta" value="${hoy}"></div>
+        <div><label>Sucursal</label><select id="reporteSucursal"><option value="">Todas</option>${opcionesSucursal}</select></div>
       </div>
       <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
         <button class="secundario" onclick="filtroReporteRapido('hoy')">Hoy</button>
@@ -161,6 +164,7 @@ async function cargarReportes() {
 
 /** Vuelve al estado por defecto de la pestaña (el día de hoy), igual que al abrirla. */
 function limpiarFiltrosReportes() {
+  document.getElementById("reporteSucursal").value = "";
   filtroReporteRapido("hoy");
 }
 
@@ -213,6 +217,14 @@ function litrosPorCombustible(detalle) {
   return Object.entries(indice).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
+/** Igual que litrosPorCombustible() pero sumando el descuento otorgado — si el filtro de
+ * sucursal está en "Todas", el detalle trae ambas y acá quedan sumadas en un solo total. */
+function descuentoPorCombustible(detalle) {
+  const indice = {};
+  detalle.forEach((r) => { indice[r.combustible] = (indice[r.combustible] || 0) + Number(r.descuento_total); });
+  return Object.entries(indice).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
 function subtotalGrupo(filas) {
   return filas.reduce(
     (acc, r) => ({
@@ -227,9 +239,11 @@ function subtotalGrupo(filas) {
 async function buscarReportes() {
   const desde = document.getElementById("reporteDesde").value;
   const hasta = document.getElementById("reporteHasta").value;
+  const sucursalId = document.getElementById("reporteSucursal").value;
   const params = new URLSearchParams();
   if (desde) params.set("desde", desde);
   if (hasta) params.set("hasta", hasta);
+  if (sucursalId) params.set("sucursal_id", sucursalId);
 
   const cont = document.getElementById("resultadoReportes");
   cont.innerHTML = `<div class="tarjeta">${skeletonLineas(4)}</div>`;
@@ -238,21 +252,27 @@ async function buscarReportes() {
   const rangoTexto = desde || hasta
     ? `Período: ${desde || "el inicio"} a ${hasta || "hoy"}`
     : "Todo el histórico (desde que se instaló la app)";
+  const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
+  const sucursalTexto = sucursal ? sucursal.nombre : "Todas";
 
-  ultimoReporte = { ...data, rangoTexto };
+  ultimoReporte = { ...data, rangoTexto, sucursalTexto };
 
   // Antes había dos tablas separadas (por sucursal y por combustible) que no conectaban
   // de dónde salía cada total. Ahora es una sola tabla: sucursal + combustible en cada
   // fila, con un subtotal por sucursal, para ver la trazabilidad completa.
   const grupos = agruparDetallePorSucursal(data.detalle);
   const litrosCombustible = litrosPorCombustible(data.detalle);
+  const descuentoCombustible = descuentoPorCombustible(data.detalle);
   const litrosCombustibleHtml = litrosCombustible.length
     ? `<div class="grid-2">${litrosCombustible.map(([c, l]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">${fmt(l)} L</div></div>`).join("")}</div>`
+    : `<p class="chico">Sin datos</p>`;
+  const descuentoCombustibleHtml = descuentoCombustible.length
+    ? `<div class="grid-2">${descuentoCombustible.map(([c, d]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">$${fmt(d)}</div></div>`).join("")}</div>`
     : `<p class="chico">Sin datos</p>`;
 
   cont.innerHTML = `
     <div class="tarjeta">
-      <p class="chico">${rangoTexto}</p>
+      <p class="chico">${rangoTexto} · Sucursal: ${sucursalTexto}</p>
       <h3>Totales</h3>
       <div class="grid-2" style="margin-top:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Transacciones</div><div style="font-size:17px; font-weight:600;">${fmt(data.totales.transacciones)}</div></div>
@@ -262,6 +282,8 @@ async function buscarReportes() {
       </div>
       <h3 style="margin-top:16px;">Litros por combustible</h3>
       ${litrosCombustibleHtml}
+      <h3 style="margin-top:16px;">Descuento por combustible</h3>
+      ${descuentoCombustibleHtml}
       <button class="secundario" style="margin-top:10px;" onclick="exportarReporteCSV()">Exportar a Excel</button>
     </div>
     <div class="tarjeta">
@@ -295,12 +317,14 @@ function exportarReporteCSV() {
   };
   const filaCsv = (arr) => arr.map(escaparCsv).join(";");
 
-  const { totales, detalle, rangoTexto } = ultimoReporte;
+  const { totales, detalle, rangoTexto, sucursalTexto } = ultimoReporte;
   const grupos = agruparDetallePorSucursal(detalle);
   const litrosCombustible = litrosPorCombustible(detalle);
+  const descuentoCombustible = descuentoPorCombustible(detalle);
 
   const lineas = [];
   lineas.push(filaCsv([rangoTexto]));
+  lineas.push(filaCsv(["Sucursal", sucursalTexto]));
   lineas.push("");
   lineas.push(filaCsv(["Totales"]));
   lineas.push(filaCsv(["Transacciones", "Litros totales", "Descuento total", "Total cobrado"]));
@@ -309,6 +333,10 @@ function exportarReporteCSV() {
   lineas.push(filaCsv(["Litros por combustible"]));
   lineas.push(filaCsv(["Combustible", "Litros"]));
   litrosCombustible.forEach(([c, l]) => lineas.push(filaCsv([c, l])));
+  lineas.push("");
+  lineas.push(filaCsv(["Descuento por combustible"]));
+  lineas.push(filaCsv(["Combustible", "Descuento"]));
+  descuentoCombustible.forEach(([c, d]) => lineas.push(filaCsv([c, d])));
   lineas.push("");
   lineas.push(filaCsv(["Detalle por sucursal y combustible"]));
   lineas.push(filaCsv(["Sucursal", "Combustible", "Litros", "Descuento", "Total cobrado"]));
@@ -1903,12 +1931,15 @@ function exportarHistorialCuadresCSV() {
 // ---------- Reportes de cuadres ----------
 async function cargarReportesCuadres() {
   const cont = document.getElementById("tab-reportes-cuadres");
+  await cargarCatalogos();
   const hoy = fechaLocalISO(new Date());
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
         <div><label>Desde</label><input type="date" id="rcDesde" value="${hoy}"></div>
         <div><label>Hasta</label><input type="date" id="rcHasta" value="${hoy}"></div>
+        <div><label>Sucursal</label><select id="rcSucursal"><option value="">Todas</option>${opcionesSucursal}</select></div>
       </div>
       <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
         <button class="secundario" onclick="filtroReporteCuadresRapido('hoy')">Hoy</button>
@@ -1924,6 +1955,7 @@ async function cargarReportesCuadres() {
 }
 
 function limpiarFiltrosReportesCuadres() {
+  document.getElementById("rcSucursal").value = "";
   filtroReporteCuadresRapido("hoy");
 }
 
@@ -1937,28 +1969,36 @@ function filtroReporteCuadresRapido(tipo) {
 async function buscarReportesCuadres() {
   const desde = document.getElementById("rcDesde").value;
   const hasta = document.getElementById("rcHasta").value;
+  const sucursalId = document.getElementById("rcSucursal").value;
   const params = new URLSearchParams();
   if (desde) params.set("desde", desde);
   if (hasta) params.set("hasta", hasta);
+  if (sucursalId) params.set("sucursal_id", sucursalId);
 
   const cont = document.getElementById("resultadoReportesCuadres");
   cont.innerHTML = `<div class="tarjeta">${skeletonLineas(4)}</div>`;
   const data = await Api.get(`/cuadres/reportes?${params.toString()}`);
 
   const rangoTexto = desde || hasta ? `Período: ${desde || "el inicio"} a ${hasta || "hoy"}` : "Todo el histórico";
+  const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
+  const sucursalTexto = sucursal ? sucursal.nombre : "Todas";
   const diferenciaNeta = Number(data.diferencia_neta);
 
   cont.innerHTML = `
     <div class="tarjeta">
-      <p class="chico">${rangoTexto}</p>
+      <p class="chico">${rangoTexto} · Sucursal: ${sucursalTexto}</p>
       <h3>Totales</h3>
       <div class="grid-2" style="margin-top:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Turnos cerrados</div><div style="font-size:17px; font-weight:600;">${data.turnos_cerrados}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Litros totales</div><div style="font-size:17px; font-weight:600;">${fmt(data.litros_totales)} L</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia neta (con signo)</div><div style="font-size:17px; font-weight:600; color:${colorDiferencia(diferenciaNeta)};">$${fmt(diferenciaNeta)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia absoluta acumulada</div><div style="font-size:17px; font-weight:600;">$${fmt(data.diferencia_absoluta)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Precio × litro</div><div style="font-size:17px; font-weight:600;">$${fmt(data.litros_precio_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Tarjeta</div><div style="font-size:17px; font-weight:600;">$${fmt(data.tarjeta_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo</div><div style="font-size:17px; font-weight:600;">$${fmt(data.efectivo_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos</div><div style="font-size:17px; font-weight:600;">$${fmt(data.descuentos_total)}</div></div>
       </div>
-      <p class="chico" style="margin-top:10px;">La neta es el impacto real en la caja del período. La absoluta suma el error de cada turno sin cancelar positivos con negativos.</p>
+      <p class="chico" style="margin-top:10px;">La neta es el impacto real en la caja del período. La absoluta suma el error de cada turno sin cancelar positivos con negativos. Precio × litro es el valor esperado según catálogo; Tarjeta + Efectivo + Descuentos es lo que realmente cuadró.</p>
     </div>
     <div class="tarjeta">
       <h3>Por sucursal y combustible</h3>

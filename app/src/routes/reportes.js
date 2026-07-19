@@ -7,7 +7,7 @@ router.use(requiereAuth, requiereRol("admin"));
 
 /** Resumen general: litros y descuento total, agrupado por sucursal y por combustible. */
 router.get("/resumen", async (req, res) => {
-  const { desde, hasta } = req.query;
+  const { desde, hasta, sucursal_id } = req.query;
   const condiciones = [];
   const valores = [];
 
@@ -20,6 +20,10 @@ router.get("/resumen", async (req, res) => {
     // "hasta" es una fecha (sin hora); se compara contra el día siguiente para incluir
     // todo ese día completo, no solo hasta las 00:00 de esa fecha.
     condiciones.push(`t.creado_en < ($${valores.length}::date + interval '1 day')`);
+  }
+  if (sucursal_id) {
+    valores.push(sucursal_id);
+    condiciones.push(`t.sucursal_id = $${valores.length}`);
   }
   const where = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
 

@@ -430,12 +430,15 @@ router.get("/reportes", async (req, res) => {
     db.query(
       `SELECT COUNT(*)::int AS turnos_cerrados,
               COALESCE(SUM(diferencia), 0) AS diferencia_neta,
-              COALESCE(SUM(ABS(diferencia)), 0) AS diferencia_absoluta
+              COALESCE(SUM(ABS(diferencia)), 0) AS diferencia_absoluta,
+              COALESCE(SUM(tarjeta_total), 0) AS tarjeta_total,
+              COALESCE(SUM(efectivo_total), 0) AS efectivo_total,
+              COALESCE(SUM(descuentos_total), 0) AS descuentos_total
        FROM cuadres_caja c ${where}`,
       valores
     ),
     db.query(
-      `SELECT COALESCE(SUM(l.litros), 0) AS litros_totales
+      `SELECT COALESCE(SUM(l.litros), 0) AS litros_totales, COALESCE(SUM(l.monto_clp), 0) AS litros_precio_total
        FROM cuadre_lecturas l JOIN cuadres_caja c ON c.id = l.cuadre_id ${where}`,
       valores
     ),
@@ -461,6 +464,7 @@ router.get("/reportes", async (req, res) => {
   res.json({
     ...totalesRes.rows[0],
     litros_totales: litrosRes.rows[0].litros_totales,
+    litros_precio_total: litrosRes.rows[0].litros_precio_total,
     desglose,
   });
 });
