@@ -193,8 +193,15 @@ CREATE TABLE IF NOT EXISTS cuadre_lecturas (
     lectura_entrada NUMERIC(12, 1) NOT NULL,
     lectura_salida NUMERIC(12, 1) NOT NULL,
     litros NUMERIC(12, 1) NOT NULL,
-    monto_clp NUMERIC(12, 2) NOT NULL
+    monto_clp NUMERIC(12, 2) NOT NULL,
+    precio_clp_litro NUMERIC(10, 0) NOT NULL DEFAULT 0
 );
+
+-- Red de seguridad por si esta tabla ya existía de una instalación anterior a este cambio.
+-- Guarda el precio REAL usado en cada lectura (el admin lo puede ajustar puntualmente para
+-- ese cuadre sin tocar el catálogo de precios), en vez de solo el monto ya multiplicado —
+-- así queda trazable en Historial qué precio se usó, aunque el catálogo cambie después.
+ALTER TABLE cuadre_lecturas ADD COLUMN IF NOT EXISTS precio_clp_litro NUMERIC(10, 0) NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_cuadre_lecturas_cuadre ON cuadre_lecturas(cuadre_id);
 CREATE INDEX IF NOT EXISTS idx_cuadre_lecturas_maquina ON cuadre_lecturas(maquina_id, combustible_id);

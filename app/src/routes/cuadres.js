@@ -121,9 +121,12 @@ function validarLecturas(lecturas) {
 /**
  * Valida que las máquinas pertenezcan a la sucursal y calcula litros/monto de cada lectura
  * (con el precio vigente a `fechaPrecio`, y en una sola consulta batch, no una por lectura).
+ * `preciosOverride` (opcional, { combustible_id: precio }) permite que el admin ajuste el
+ * precio de un combustible puntualmente PARA ESTE CUADRE, sin tocar el catálogo — el precio
+ * real usado queda guardado en cada lectura (ver insertarLecturas) para que quede trazable.
  * No inserta nada — eso lo hace insertarLecturas() una vez que el cuadre ya tiene id.
  */
-async function calcularLecturas(client, sucursalId, lecturas, fechaPrecio) {
+async function calcularLecturas(client, sucursalId, lecturas, fechaPrecio, preciosOverride = {}) {
   const maquinasValidas = await client.query("SELECT id FROM maquinas WHERE sucursal_id = $1", [sucursalId]);
   const idsValidos = new Set(maquinasValidas.rows.map((m) => m.id));
   if (lecturas.some((l) => !idsValidos.has(Number(l.maquina_id)))) {
@@ -141,6 +144,15 @@ async function calcularLecturas(client, sucursalId, lecturas, fechaPrecio) {
   const indicePrecios = {};
   preciosRes.rows.forEach((p) => { indicePrecios[p.combustible_id] = Number(p.precio_clp_litro); });
 
+  if (preciosOverride && typeof preciosOverride === "object") {
+    Object.entries(preciosOverride).forEach(([combustibleId, precio]) => {
+      const precioNum = Math.round(Number(precio));
+      if (Number.isFinite(precioNum) && precioNum >= 0) {
+        indicePrecios[Number(combustibleId)] = precioNum;
+      }
+    });
+  }
+
   let litrosPrecioTotal = 0;
   const lecturasCalculadas = lecturas.map((l) => {
     const precio = indicePrecios[Number(l.combustible_id)];
@@ -150,7 +162,7 @@ async function calcularLecturas(client, sucursalId, lecturas, fechaPrecio) {
     const litros = Math.round((Number(l.lectura_salida) - Number(l.lectura_entrada)) * 10) / 10;
     const monto = Math.round(litros * precio * 100) / 100;
     litrosPrecioTotal += monto;
-    return { ...l, litros, monto };
+    return { ...l, litros, monto, precio };
   });
 
   return { litrosPrecioTotal, lecturasCalculadas };
@@ -161,12 +173,12 @@ async function insertarLecturas(client, cuadreId, lecturasCalculadas) {
   const valoresSql = [];
   const parametros = [];
   lecturasCalculadas.forEach((l, i) => {
-    const base = i * 7;
-    valoresSql.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`);
-    parametros.push(cuadreId, l.maquina_id, l.combustible_id, l.lectura_entrada, l.lectura_salida, l.litros, l.monto);
+    const base = i * 8;
+    valoresSql.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`);
+    parametros.push(cuadreId, l.maquina_id, l.combustible_id, l.lectura_entrada, l.lectura_salida, l.litros, l.monto, l.precio);
   });
   await client.query(
-    `INSERT INTO cuadre_lecturas (cuadre_id, maquina_id, combustible_id, lectura_entrada, lectura_salida, litros, monto_clp)
+    `INSERT INTO cuadre_lecturas (cuadre_id, maquina_id, combustible_id, lectura_entrada, lectura_salida, litros, monto_clp, precio_clp_litro)
      VALUES ${valoresSql.join(", ")}`,
     parametros
   );
@@ -265,7 +277,7 @@ router.get("/turno", async (req, res) => {
 
 /** Cierra un turno nuevo (fecha+turno elegidos, no tiene que ser "el de ahora"). */
 router.post("/", async (req, res) => {
-  const { sucursal_id, fecha, turno, tarjeta_total, lecturas } = req.body || {};
+  const { sucursal_id, fecha, turno, tarjeta_total, lecturas, precios_override } = req.body || {};
 
   if (!sucursal_id || !fecha || !turno || tarjeta_total === undefined || Number(tarjeta_total) < 0) {
     return res.status(400).json({ error: "Sucursal, fecha, turno y tarjeta_total (0 o mayor) son obligatorios." });
@@ -284,7 +296,7 @@ router.post("/", async (req, res) => {
     client = await db.pool.connect();
     await client.query("BEGIN");
 
-    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, sucursal_id, lecturas, turnoFin);
+    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, sucursal_id, lecturas, turnoFin, precios_override);
     const { efectivo_total: efectivoTotal, descuentos_total: descuentosTotal } = await totalesTurno(client, sucursal_id, turnoInicio, turnoFin);
     const tarjetaTotal = Number(tarjeta_total);
     const diferencia = Math.round((litrosPrecioTotal - (efectivoTotal + tarjetaTotal + descuentosTotal)) * 100) / 100;
@@ -321,7 +333,7 @@ router.post("/", async (req, res) => {
  * valores nuevos y deja registrado quién editó y cuándo (pisando el cerrado_por original).
  */
 router.put("/:id", async (req, res) => {
-  const { tarjeta_total, lecturas } = req.body || {};
+  const { tarjeta_total, lecturas, precios_override } = req.body || {};
   if (tarjeta_total === undefined || Number(tarjeta_total) < 0) {
     return res.status(400).json({ error: "tarjeta_total (0 o mayor) es obligatorio." });
   }
@@ -352,7 +364,7 @@ router.put("/:id", async (req, res) => {
       );
     }
 
-    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, cuadreActual.sucursal_id, lecturas, cuadreActual.turno_fin);
+    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, cuadreActual.sucursal_id, lecturas, cuadreActual.turno_fin, precios_override);
     const { efectivo_total: efectivoTotal, descuentos_total: descuentosTotal } = await totalesTurno(client, cuadreActual.sucursal_id, cuadreActual.turno_inicio, cuadreActual.turno_fin);
     const tarjetaTotal = Number(tarjeta_total);
     const diferencia = Math.round((litrosPrecioTotal - (efectivoTotal + tarjetaTotal + descuentosTotal)) * 100) / 100;
@@ -443,6 +455,36 @@ router.get("/reportes", async (req, res) => {
     litros_totales: litrosRes.rows[0].litros_totales,
     desglose,
   });
+});
+
+/**
+ * Detalle de un cuadre puntual (para el modal de "Ver detalle" en Historial): sus lecturas
+ * con el precio real que se usó en cada una, trazable aunque el catálogo haya cambiado
+ * después. Va al final del archivo porque "/:id" debe registrarse después de las rutas
+ * literales (/turno, /reportes) — si no, Express las confundiría con un id.
+ */
+router.get("/:id", async (req, res) => {
+  const cuadreRes = await db.query(
+    `SELECT c.*, s.nombre AS sucursal_nombre, u.nombre AS cerrado_por_nombre, u.apellido AS cerrado_por_apellido
+     FROM cuadres_caja c
+     JOIN sucursales s ON s.id = c.sucursal_id
+     JOIN usuarios u ON u.id = c.cerrado_por
+     WHERE c.id = $1`,
+    [req.params.id]
+  );
+  const cuadre = cuadreRes.rows[0];
+  if (!cuadre) return res.status(404).json({ error: "Cuadre no encontrado." });
+
+  const lecturasRes = await db.query(
+    `SELECT l.*, m.nombre AS maquina_nombre, co.nombre AS combustible_nombre
+     FROM cuadre_lecturas l
+     JOIN maquinas m ON m.id = l.maquina_id
+     JOIN combustibles co ON co.id = l.combustible_id
+     WHERE l.cuadre_id = $1
+     ORDER BY m.nombre, co.nombre`,
+    [cuadre.id]
+  );
+  res.json({ cuadre, lecturas: lecturasRes.rows });
 });
 
 module.exports = router;

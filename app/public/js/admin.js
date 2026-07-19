@@ -1270,8 +1270,13 @@ function capturarValoresCuadre() {
       valoresLecturas[`${l.maquina_id}-${l.combustible_id}`] = { entrada: entradaEl.value, salida: salidaEl.value };
     }
   });
+  const valoresPrecios = {};
+  catalogos.combustibles.forEach((c) => {
+    const precioEl = document.getElementById(`precioOverride-${c.id}`);
+    if (precioEl && precioEl.value !== "") valoresPrecios[c.id] = precioEl.value;
+  });
   const tarjetaEl = document.getElementById("cuadreTarjeta");
-  return { lecturas: valoresLecturas, tarjeta: tarjetaEl ? tarjetaEl.value : "" };
+  return { lecturas: valoresLecturas, precios: valoresPrecios, tarjeta: tarjetaEl ? tarjetaEl.value : "" };
 }
 
 /**
@@ -1317,6 +1322,7 @@ async function cargarTurnoCuadre(preservar) {
     combustible_nombre: l.combustible_nombre,
     lectura_entrada: l.lectura_entrada,
     lectura_salida_guardada: info.existe ? l.lectura_salida : undefined,
+    precio_guardado: info.existe ? l.precio_clp_litro : undefined,
   }));
 
   renderFormularioCuadre(valoresPrevios);
@@ -1404,11 +1410,18 @@ function renderFormularioCuadre(valoresPrevios) {
     </div>
 
     <div class="tarjeta">
-      <h3>Precios vigentes</h3>
+      <h3>Precios</h3>
+      <p class="chico">Precargados con el precio vigente. Se pueden ajustar acá — el cambio aplica solo a este cuadre, no al catálogo de precios.</p>
       <div class="grid-2">
         ${catalogos.combustibles.map((c) => {
-          const p = preciosCacheCuadre.find((pr) => pr.combustible_id === c.id);
-          return `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c.nombre}</div><div style="font-size:17px; font-weight:600;">${p ? `$${fmt(p.precio_clp_litro)}/L` : "Sin precio"}</div></div>`;
+          const guardado = valoresPrevios && valoresPrevios.precios[c.id];
+          const vigente = preciosCacheCuadre.find((pr) => pr.combustible_id === c.id);
+          const lecturaGuardada = lecturasCuadre.find((l) => l.combustible_id === c.id && l.precio_guardado !== undefined);
+          const valorInicial = guardado ?? (lecturaGuardada ? lecturaGuardada.precio_guardado : (vigente ? vigente.precio_clp_litro : ""));
+          return `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
+            <label style="margin:0;">${c.nombre}</label>
+            <input type="number" step="1" min="0" id="precioOverride-${c.id}" value="${valorInicial}" placeholder="Sin precio" oninput="recalcularCuadre()" ${soloLectura ? "disabled" : ""}>
+          </div>`;
         }).join("")}
       </div>
     </div>
@@ -1550,8 +1563,11 @@ function recalcularCuadre() {
       marcarError(i, litrosCell, montoCell, filaError, "La salida no puede ser menor a la entrada.");
       return;
     }
-    const precioObj = preciosCacheCuadre.find((p) => p.combustible_id === l.combustible_id);
-    if (!precioObj) {
+    // El precio se lee del input editable de la tarjeta "Precios" (precargado con el
+    // vigente, pero el admin lo puede ajustar puntualmente para este cuadre).
+    const precioInput = document.getElementById(`precioOverride-${l.combustible_id}`);
+    const precio = precioInput ? Number(precioInput.value) : NaN;
+    if (!precioInput || precioInput.value === "" || Number.isNaN(precio) || precio < 0) {
       marcarError(i, litrosCell, montoCell, filaError, "No hay un precio configurado para este combustible en esta sucursal.");
       return;
     }
@@ -1562,7 +1578,7 @@ function recalcularCuadre() {
 
     // Redondeado por línea igual que el servidor, para que la vista previa coincida
     // exactamente con lo que va a quedar guardado.
-    const monto = Math.round(litros * Number(precioObj.precio_clp_litro) * 100) / 100;
+    const monto = Math.round(litros * precio * 100) / 100;
     montoCell.textContent = "$" + fmt(monto);
     litrosPrecioTotal += monto;
   });
@@ -1598,13 +1614,27 @@ function validarYArmarLecturasCuadre() {
   if (lecturas.some((l) => l.lectura_salida < l.lectura_entrada)) {
     return { error: "Corrige las lecturas marcadas en rojo: la salida no puede ser menor a la entrada." };
   }
-  if (lecturas.some((l) => !preciosCacheCuadre.some((p) => p.combustible_id === l.combustible_id))) {
+  if (lecturas.some((l) => {
+    const precioEl = document.getElementById(`precioOverride-${l.combustible_id}`);
+    return !precioEl || precioEl.value === "" || Number(precioEl.value) < 0;
+  })) {
     return { error: "Corrige las lecturas marcadas en rojo: hay un combustible sin precio configurado en esta sucursal." };
   }
   if (lecturas.length === 0) {
     return { error: "Ingresa al menos una lectura (entrada y salida) antes de continuar." };
   }
   return { lecturas };
+}
+
+/** Lee los precios editables de la tarjeta "Precios" (precargados con el vigente, ajustables
+ * puntualmente para este cuadre) para mandarlos junto con las lecturas al guardar. */
+function leerPreciosOverrideCuadre() {
+  const precios = {};
+  catalogos.combustibles.forEach((c) => {
+    const el = document.getElementById(`precioOverride-${c.id}`);
+    if (el && el.value !== "") precios[c.id] = Number(el.value);
+  });
+  return precios;
 }
 
 /** Valida el monto de tarjeta ingresado; si es válido lo devuelve como número, si no muestra el error y devuelve null. */
@@ -1647,6 +1677,7 @@ async function cerrarTurno() {
       turno: cuadreInfo.turno,
       tarjeta_total: tarjetaTotal,
       lecturas,
+      precios_override: leerPreciosOverrideCuadre(),
     });
     await avisar("Turno cerrado correctamente.", "Listo");
     await cargarTurnoCuadre();
@@ -1675,7 +1706,7 @@ async function guardarEdicionCuadre() {
   if (!confirmado) return;
 
   try {
-    await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, lecturas });
+    await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, lecturas, precios_override: leerPreciosOverrideCuadre() });
     await avisar("Cambios guardados.", "Listo");
     await cargarTurnoCuadre();
   } catch (err) {
@@ -1729,7 +1760,7 @@ async function buscarHistorialCuadres() {
 
   cont.innerHTML = `
     <table>
-      <tr><th>Fecha</th><th>Turno</th><th>Sucursal</th><th>Litros</th><th>Litros × precio</th><th>Tarjeta</th><th>Efectivo</th><th>Descuentos</th><th>Suma (T+E+D)</th><th>Diferencia</th><th>Cerrado por</th></tr>
+      <tr><th>Fecha</th><th>Turno</th><th>Sucursal</th><th>Litros</th><th>Litros × precio</th><th>Tarjeta</th><th>Efectivo</th><th>Descuentos</th><th>Suma (T+E+D)</th><th>Diferencia</th><th>Cerrado por</th><th></th></tr>
       ${rows.map((c) => {
         const suma = Number(c.tarjeta_total) + Number(c.efectivo_total) + Number(c.descuentos_total);
         const diferencia = Number(c.diferencia);
@@ -1745,10 +1776,41 @@ async function buscarHistorialCuadres() {
           <td>$${fmt(suma)}</td>
           <td style="color:${colorDiferencia(diferencia)};">$${fmt(diferencia)}</td>
           <td>${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}${c.editado_en ? ' <span style="color:var(--dorado); font-weight:600;" title="Editado el ' + new Date(c.editado_en).toLocaleString("es-CL") + '">✏️ Editado</span>' : ""}</td>
+          <td><a style="color:var(--dorado); cursor:pointer;" onclick="verDetalleCuadre(${c.id})">Ver detalle</a></td>
         </tr>`;
-      }).join("") || '<tr><td colspan="11">Sin registros</td></tr>'}
+      }).join("") || '<tr><td colspan="12">Sin registros</td></tr>'}
     </table>
     <p class="chico" style="margin-top:8px;">Suma (T+E+D) = Tarjeta + Efectivo + Descuentos. Diferencia = Litros × precio − Suma.</p>`;
+}
+
+/** Muestra en un modal las lecturas de un cuadre (máquina, combustible, litros, precio usado
+ * y monto), con el precio real guardado en ese momento aunque el catálogo haya cambiado después. */
+async function verDetalleCuadre(cuadreId) {
+  const { cuadre, lecturas } = await Api.get(`/cuadres/${cuadreId}`);
+  const cont = document.getElementById("modalContenedor");
+  cont.innerHTML = `
+    <div class="overlay-modal">
+      <div class="modal" style="max-width:520px; max-height:80vh; display:flex; flex-direction:column;">
+        <h3 style="flex-shrink:0;">Detalle del cuadre</h3>
+        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${cuadre.sucursal_nombre} · ${NOMBRE_TURNO[cuadre.turno] || cuadre.turno} · ${new Date(cuadre.turno_fin).toLocaleDateString("es-CL")}</p>
+        <div style="overflow:auto; max-width:100%; flex:1; min-height:0;">
+          <table style="min-width:0; width:100%;">
+            <tr><th>Máquina</th><th>Combustible</th><th>Litros</th><th>Precio/L</th><th>Monto</th></tr>
+            ${lecturas.map((l) => `
+              <tr>
+                <td>${l.maquina_nombre}</td>
+                <td>${l.combustible_nombre}</td>
+                <td>${fmt(l.litros)}</td>
+                <td>$${fmt(l.precio_clp_litro)}</td>
+                <td>$${fmt(l.monto_clp)}</td>
+              </tr>`).join("") || '<tr><td colspan="5">Sin lecturas</td></tr>'}
+          </table>
+        </div>
+        <div class="modal-botones" style="flex-shrink:0;">
+          <button class="primario" onclick="document.getElementById('modalContenedor').innerHTML=''">Cerrar</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 /** Arma pares [etiqueta, valor] con los filtros de Historial de cuadres actualmente aplicados. */
