@@ -1,6 +1,10 @@
 require("dotenv").config();
 const path = require("path");
 const express = require("express");
+// Hace que las rutas async que rechazan (throw dentro de un async handler) se reenvíen
+// solas al middleware de errores de abajo, en vez de crashear el proceso completo — sin
+// esto, Express 4 no captura promesas rechazadas en rutas async automáticamente.
+require("express-async-errors");
 const cors = require("cors");
 const bootstrap = require("./bootstrap");
 
@@ -32,6 +36,21 @@ app.get("/api/salud", (req, res) => res.json({ ok: true }));
 
 // Frontend estático (login, pantalla bombero, panel admin)
 app.use(express.static(path.join(__dirname, "..", "public")));
+
+// Manejador de errores global: red de seguridad para cualquier error no capturado por un
+// try/catch propio de la ruta (incluye los reenviados por express-async-errors). Debe ir
+// después de todas las rutas y llevar 4 parámetros para que Express lo reconozca como
+// manejador de errores.
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (err && err.code === "22P02") {
+    return res.status(400).json({ error: "Id inválido." });
+  }
+  if (err && err.code === "23503") {
+    return res.status(400).json({ error: "La operación hace referencia a un registro que no existe." });
+  }
+  res.status(500).json({ error: "Error interno del servidor." });
+});
 
 const PUERTO = process.env.PORT || 3000;
 
