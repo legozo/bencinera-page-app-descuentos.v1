@@ -145,9 +145,16 @@ router.post("/traspaso", requiereRol("admin"), async (req, res) => {
       error: "No existe el socio interno para traspasos. Debe crearse directo en la base de datos.",
     });
   }
+  // El "bombero" que queda registrado en un traspaso siempre es la cuenta "admin" genérica,
+  // sin importar cuál admin haya iniciado sesión y apretado el botón — así el Historial
+  // muestra siempre "Administrador" en vez del nombre personal de quien lo registró.
+  const adminRes = await db.query("SELECT id FROM usuarios WHERE usuario = 'admin' LIMIT 1");
+  if (!adminRes.rows[0]) {
+    return res.status(500).json({ error: "No existe la cuenta 'admin'." });
+  }
   const resultado = await registrarVenta({
     sucursalId: sucursal_id,
-    usuarioId: req.usuario.id,
+    usuarioId: adminRes.rows[0].id,
     rut: `${internoRes.rows[0].rut}-${internoRes.rows[0].dv}`,
     combustibleId: combustible_id,
     litros,
