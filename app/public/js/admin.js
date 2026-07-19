@@ -410,7 +410,7 @@ async function cargarHistorial() {
         <div class="grid-2">
           <div><label>Sucursal</label><select id="tSucursal" onchange="actualizarCombustiblesTraspaso()">${opcionesSucursal}</select></div>
           <div><label>Combustible</label><select id="tCombustible">${opcionesCombustibleTraspaso}</select></div>
-          <div><label>Litros</label><input id="tLitros" type="number" step="0.001" min="0.001" placeholder="0"></div>
+          <div style="grid-column:1 / -1;"><label>Litros</label><input id="tLitros" type="number" step="0.001" min="0.001" placeholder="0"></div>
         </div>
         <div style="margin-top:12px; display:flex; gap:8px;">
           <button class="primario" style="margin-top:0;" onclick="registrarTraspaso()">Guardar</button>
@@ -432,10 +432,16 @@ function opcionesCombustibleConPrecio(sucursalId) {
   }).join("");
 }
 
-/** Se llama al cambiar la sucursal del form de traspaso, para refrescar el precio mostrado junto a cada combustible. */
+/** Se llama al cambiar la sucursal del form de traspaso, para refrescar el precio mostrado junto a cada combustible
+ *  sin perder el combustible que ya estaba elegido (el precio cambia, pero el combustible sigue siendo el mismo). */
 function actualizarCombustiblesTraspaso() {
   const sucursalId = document.getElementById("tSucursal").value;
-  document.getElementById("tCombustible").innerHTML = opcionesCombustibleConPrecio(sucursalId);
+  const select = document.getElementById("tCombustible");
+  const elegidoPrevio = select.value;
+  select.innerHTML = opcionesCombustibleConPrecio(sucursalId);
+  if (catalogos.combustibles.some((c) => String(c.id) === elegidoPrevio)) {
+    select.value = elegidoPrevio;
+  }
 }
 
 /** Muestra u oculta el mini formulario para registrar un traspaso de combustible (y limpia los campos al cerrarlo). */
@@ -1263,7 +1269,7 @@ async function refrescarMatrizPrecios() {
     </table>`;
 }
 
-/** Muestra en un modal el historial completo de precios de una combinación sucursal + combustible. */
+/** Muestra en un modal el historial de precios (últimos 25 cambios) de una combinación sucursal + combustible. */
 async function verHistorialPrecio(sucursalId, combustibleId, sucursalNombre, combustibleNombre) {
   const rows = await Api.get(`/catalogos/precios/historial?sucursal_id=${sucursalId}&combustible_id=${combustibleId}`);
   const cont = document.getElementById("modalContenedor");
@@ -1271,7 +1277,7 @@ async function verHistorialPrecio(sucursalId, combustibleId, sucursalNombre, com
     <div class="overlay-modal">
       <div class="modal" style="max-width:460px; max-height:80vh; display:flex; flex-direction:column;">
         <h3 style="flex-shrink:0;">Historial de precios</h3>
-        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${combustibleNombre} · ${sucursalNombre}</p>
+        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${combustibleNombre} · ${sucursalNombre} · muestra los últimos ${rows.length === 25 ? "25" : rows.length} cambios</p>
         <div style="overflow:auto; max-width:100%; flex:1; min-height:0;">
           <table style="min-width:0; width:100%;">
             <tr><th>Fecha</th><th>Precio</th><th>Cambiado por</th></tr>
