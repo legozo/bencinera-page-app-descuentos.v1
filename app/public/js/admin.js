@@ -3,6 +3,7 @@ requerirSesion("admin");
 let catalogos = { sucursales: [], combustibles: [], tiposSocio: [] };
 let ultimoHistorial = []; // guarda las filas cargadas para poder exportarlas
 let ultimoReporte = null; // guarda el reporte cargado (totales + desgloses) para poder exportarlo
+let ultimoReporteCuadres = null; // idem, para Reportes de cuadres
 
 async function cargarCatalogos() {
   const [sucursales, combustibles, tiposSocio] = await Promise.all([
@@ -214,6 +215,14 @@ function agruparDetallePorSucursal(detalle) {
 function litrosPorCombustible(detalle) {
   const indice = {};
   detalle.forEach((r) => { indice[r.combustible] = (indice[r.combustible] || 0) + Number(r.litros); });
+  return Object.entries(indice).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+/** Igual que litrosPorCombustible() pero sumando el monto total — usado en el desglose de
+ * Reportes de cuadres (litros/monto_total), que reutiliza la misma forma de fila. */
+function montoPorCombustible(detalle) {
+  const indice = {};
+  detalle.forEach((r) => { indice[r.combustible] = (indice[r.combustible] || 0) + Number(r.monto_total); });
   return Object.entries(indice).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
@@ -1983,6 +1992,15 @@ async function buscarReportesCuadres() {
   const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
   const sucursalTexto = sucursal ? sucursal.nombre : "Todas";
   const diferenciaNeta = Number(data.diferencia_neta);
+  ultimoReporteCuadres = { ...data, rangoTexto, sucursalTexto };
+  const litrosCombustible = litrosPorCombustible(data.desglose);
+  const montoCombustible = montoPorCombustible(data.desglose);
+  const litrosCombustibleHtml = litrosCombustible.length
+    ? `<div class="grid-2">${litrosCombustible.map(([c, l]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">${fmt(l)} L</div></div>`).join("")}</div>`
+    : `<p class="chico">Sin datos</p>`;
+  const montoCombustibleHtml = montoCombustible.length
+    ? `<div class="grid-2">${montoCombustible.map(([c, m]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">$${fmt(m)}</div></div>`).join("")}</div>`
+    : `<p class="chico">Sin datos</p>`;
 
   cont.innerHTML = `
     <div class="tarjeta">
@@ -1999,6 +2017,11 @@ async function buscarReportesCuadres() {
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos</div><div style="font-size:17px; font-weight:600;">$${fmt(data.descuentos_total)}</div></div>
       </div>
       <p class="chico" style="margin-top:10px;">La neta es el impacto real en la caja del período. La absoluta suma el error de cada turno sin cancelar positivos con negativos. Precio × litro es el valor esperado según catálogo; Tarjeta + Efectivo + Descuentos es lo que realmente cuadró.</p>
+      <h3 style="margin-top:16px;">Litros por combustible</h3>
+      ${litrosCombustibleHtml}
+      <h3 style="margin-top:16px;">Total por combustible</h3>
+      ${montoCombustibleHtml}
+      <button class="secundario" style="margin-top:10px;" onclick="exportarReporteCuadresCSV()">Exportar a Excel</button>
     </div>
     <div class="tarjeta">
       <h3>Por sucursal y combustible</h3>
@@ -2008,6 +2031,62 @@ async function buscarReportesCuadres() {
       </table>
       <p class="chico" style="margin-top:8px;">El precio promedio es monto total ÷ litros — ponderado automáticamente si el período cruza un cambio de precio.</p>
     </div>`;
+}
+
+/**
+ * Exporta el reporte de cuadres actualmente cargado a un CSV que Excel abre directo, mismo
+ * formato (BOM + ";" + filtros documentados + secciones) que exportarReporteCSV() en
+ * Reportes Descuentos.
+ */
+function exportarReporteCuadresCSV() {
+  if (!ultimoReporteCuadres) {
+    avisar("No hay datos cargados para exportar. Filtra primero.");
+    return;
+  }
+
+  const escaparCsv = (valor) => {
+    const texto = String(valor ?? "");
+    return /[;"\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+  };
+  const filaCsv = (arr) => arr.map(escaparCsv).join(";");
+
+  const { turnos_cerrados, diferencia_neta, diferencia_absoluta, litros_precio_total, tarjeta_total, efectivo_total, descuentos_total, litros_totales, desglose, rangoTexto, sucursalTexto } = ultimoReporteCuadres;
+  const litrosCombustible = litrosPorCombustible(desglose);
+  const montoCombustible = montoPorCombustible(desglose);
+
+  const lineas = [];
+  lineas.push(filaCsv([rangoTexto]));
+  lineas.push(filaCsv(["Sucursal", sucursalTexto]));
+  lineas.push("");
+  lineas.push(filaCsv(["Totales"]));
+  lineas.push(filaCsv(["Turnos cerrados", "Litros totales", "Diferencia neta", "Diferencia absoluta", "Precio x litro", "Tarjeta", "Efectivo", "Descuentos"]));
+  lineas.push(filaCsv([turnos_cerrados, litros_totales, diferencia_neta, diferencia_absoluta, litros_precio_total, tarjeta_total, efectivo_total, descuentos_total]));
+  lineas.push("");
+  lineas.push(filaCsv(["Litros por combustible"]));
+  lineas.push(filaCsv(["Combustible", "Litros"]));
+  litrosCombustible.forEach(([c, l]) => lineas.push(filaCsv([c, l])));
+  lineas.push("");
+  lineas.push(filaCsv(["Total por combustible"]));
+  lineas.push(filaCsv(["Combustible", "Total"]));
+  montoCombustible.forEach(([c, m]) => lineas.push(filaCsv([c, m])));
+  lineas.push("");
+  lineas.push(filaCsv(["Por sucursal y combustible"]));
+  lineas.push(filaCsv(["Sucursal", "Combustible", "Litros", "Monto total", "Precio promedio $/L"]));
+  desglose.forEach((d) => lineas.push(filaCsv([d.sucursal, d.combustible, d.litros, d.monto_total, d.precio_promedio])));
+
+  const csv = lineas.join("\r\n");
+  const bom = "﻿"; // para que Excel detecte UTF-8 y no rompa las tildes/ñ
+  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  const fecha = new Date().toISOString().slice(0, 10);
+  enlace.href = url;
+  enlace.download = `reporte_cuadres_${fecha}.csv`;
+  document.body.appendChild(enlace);
+  enlace.click();
+  document.body.removeChild(enlace);
+  URL.revokeObjectURL(url);
 }
 
 // ---------- Descargas ----------
