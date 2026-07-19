@@ -221,7 +221,7 @@ router.get("/turno", async (req, res) => {
 
   if (existente.rows[0]) {
     const cuadre = existente.rows[0];
-    const [posteriorRes, lecturasRes, precios] = await Promise.all([
+    const [posteriorRes, lecturasRes, maquinasRes, combustiblesRes, ultimasLecturasRes, precios] = await Promise.all([
       db.query("SELECT EXISTS(SELECT 1 FROM cuadres_caja WHERE sucursal_id = $1 AND turno_fin > $2) AS hay", [sucursal_id, cuadre.turno_fin]),
       db.query(
         `SELECT l.*, m.nombre AS maquina_nombre, co.nombre AS combustible_nombre
@@ -232,11 +232,53 @@ router.get("/turno", async (req, res) => {
          ORDER BY m.nombre, co.nombre`,
         [cuadre.id]
       ),
+      db.query("SELECT * FROM maquinas WHERE sucursal_id = $1 AND activa = true ORDER BY nombre", [sucursal_id]),
+      db.query("SELECT * FROM combustibles ORDER BY nombre"),
+      db.query(
+        `SELECT DISTINCT ON (l.maquina_id, l.combustible_id) l.maquina_id, l.combustible_id, l.lectura_salida
+         FROM cuadre_lecturas l
+         JOIN cuadres_caja c ON c.id = l.cuadre_id
+         WHERE c.sucursal_id = $1 AND c.turno_fin <= $2
+         ORDER BY l.maquina_id, l.combustible_id, c.turno_fin DESC`,
+        [sucursal_id, inicio]
+      ),
       preciosVigentes(db, sucursal_id, fin),
     ]);
+    const editable = !posteriorRes.rows[0].hay;
+
+    let lecturas = lecturasRes.rows;
+    if (editable) {
+      // Completa con máquinas activas que todavía no tienen una lectura guardada en ESTE
+      // cuadre (ej. una máquina que se agregó después de cerrarlo, o que quedó en blanco
+      // porque no tuvo movimiento ese turno) — si no, sería imposible agregarle una lectura
+      // al editar: el formulario solo mostraba las filas que ya existían en cuadre_lecturas.
+      const indiceEntrada = {};
+      ultimasLecturasRes.rows.forEach((r) => { indiceEntrada[`${r.maquina_id}-${r.combustible_id}`] = r.lectura_salida; });
+      const yaGuardadas = new Set(lecturas.map((l) => `${l.maquina_id}-${l.combustible_id}`));
+      const faltantes = [];
+      maquinasRes.rows.forEach((m) => {
+        combustiblesRes.rows.forEach((c) => {
+          const clave = `${m.id}-${c.id}`;
+          if (!yaGuardadas.has(clave)) {
+            faltantes.push({
+              maquina_id: m.id,
+              maquina_nombre: m.nombre,
+              combustible_id: c.id,
+              combustible_nombre: c.nombre,
+              lectura_entrada: indiceEntrada[clave] ?? null,
+              lectura_salida: null,
+            });
+          }
+        });
+      });
+      lecturas = [...lecturas, ...faltantes].sort((a, b) =>
+        a.maquina_nombre.localeCompare(b.maquina_nombre) || a.combustible_nombre.localeCompare(b.combustible_nombre)
+      );
+    }
+
     return res.json({
       existe: true,
-      editable: !posteriorRes.rows[0].hay,
+      editable,
       turno,
       turno_inicio: inicio,
       turno_fin: fin,
@@ -245,7 +287,7 @@ router.get("/turno", async (req, res) => {
       descuentos_total: Number(cuadre.descuentos_total),
       precios,
       cuadre,
-      lecturas: lecturasRes.rows,
+      lecturas,
     });
   }
 
