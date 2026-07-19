@@ -46,7 +46,10 @@ const Offline = {
     if (!valido) return { error: "RUT inválido (dígito verificador no coincide)." };
     if (!bundle) return { error: "No hay datos guardados localmente todavía (nunca hubo conexión en este dispositivo)." };
 
-    const socio = bundle.socios.find((s) => s.rut === cuerpo);
+    // El filtro !s.es_interno es una segunda capa por si el dispositivo tiene guardado un
+    // bundle descargado antes de que el servidor empezara a excluir el socio interno de
+    // traspasos de combustible del bundle (GET /offline/bundle).
+    const socio = bundle.socios.find((s) => s.rut === cuerpo && !s.es_interno);
     if (!socio) return { es_socio: false, rut: cuerpo, dv, modo_offline: true };
 
     const tipoSocio = bundle.tipos_socio.find((t) => t.id === socio.tipo_socio_id);

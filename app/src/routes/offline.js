@@ -19,7 +19,7 @@ router.get("/bundle", async (req, res) => {
   const [socios, tiposSocio, combustibles, reglas, precios] = await Promise.all([
     db.query(
       `SELECT id, rut, dv, nombre, apellido, tipo_socio_id
-       FROM socios WHERE activo = true`
+       FROM socios WHERE activo = true AND es_interno = false`
     ),
     db.query("SELECT id, nombre FROM tipos_socio"),
     db.query("SELECT id, nombre FROM combustibles"),
