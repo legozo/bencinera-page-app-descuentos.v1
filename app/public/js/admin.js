@@ -1361,7 +1361,7 @@ function renderFormularioCuadre(valoresPrevios) {
     const finGrupo = i === lecturasCuadre.length - 1 || l.maquina_id !== lecturasCuadre[i + 1].maquina_id;
     const clasesFila = [nuevaMaquina && "nueva-maquina", inicioGrupo && "grupo-inicio", finGrupo && "grupo-fin"].filter(Boolean).join(" ");
     return `
-    <tr class="${clasesFila}">
+    <tr id="filaDatos-${i}" class="${clasesFila}" data-fin-grupo="${finGrupo}">
       <td data-etiqueta="Máquina">${l.maquina_nombre}</td>
       <td data-etiqueta="Combustible">${l.combustible_nombre}</td>
       <td data-etiqueta="Entrada"><input type="number" step="0.1" min="0" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
@@ -1369,7 +1369,7 @@ function renderFormularioCuadre(valoresPrevios) {
       <td data-etiqueta="Litros" id="litros-${i}">-</td>
       <td data-etiqueta="Monto" id="monto-${i}">-</td>
     </tr>
-    <tr id="filaError-${i}" class="oculto${finGrupo ? " grupo-fin" : ""}"><td colspan="6" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
+    <tr id="filaError-${i}" class="oculto" data-fin-grupo="${finGrupo}"><td colspan="6" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
   }).join("");
 
   const valorTarjeta = valoresPrevios ? valoresPrevios.tarjeta : (cuadreInfo.existe ? cuadreInfo.cuadre.tarjeta_total : "");
@@ -1531,12 +1531,24 @@ async function eliminarMaquina(id) {
 function recalcularCuadre() {
   let litrosPrecioTotal = 0;
 
-  const marcarError = (i, litrosCell, montoCell, filaError, mensaje) => {
+  // En móvil, la fila de datos y su fila de error (si aparece) comparten una sola "tarjeta"
+  // por máquina — data-fin-grupo marca cuál par es el último de su grupo. El borde/margen de
+  // cierre de esa tarjeta tiene que estar SIEMPRE en la última fila realmente visible: en la
+  // de datos cuando no hay error, o en la de error cuando sí se muestra (si no, quedan dos
+  // "cierres" seguidos y la tarjeta se ve partida en dos apenas hay un typo en la última lectura).
+  const sincronizarCierreGrupo = (filaDatos, filaError, hayError) => {
+    if (filaDatos.dataset.finGrupo !== "true") return;
+    filaDatos.classList.toggle("grupo-fin", !hayError);
+    filaError.classList.toggle("grupo-fin", hayError);
+  };
+
+  const marcarError = (i, litrosCell, montoCell, filaDatos, filaError, mensaje) => {
     litrosCell.textContent = "Inválido";
     litrosCell.style.color = "var(--rojo)";
     montoCell.textContent = "-";
     document.getElementById(`filaErrorTexto-${i}`).textContent = mensaje;
     filaError.classList.remove("oculto");
+    sincronizarCierreGrupo(filaDatos, filaError, true);
   };
 
   lecturasCuadre.forEach((l, i) => {
@@ -1544,6 +1556,7 @@ function recalcularCuadre() {
     const salidaInput = document.getElementById(`salida-${i}`);
     const litrosCell = document.getElementById(`litros-${i}`);
     const montoCell = document.getElementById(`monto-${i}`);
+    const filaDatos = document.getElementById(`filaDatos-${i}`);
     const filaError = document.getElementById(`filaError-${i}`);
 
     if (entradaInput.value === "" || salidaInput.value === "") {
@@ -1551,27 +1564,32 @@ function recalcularCuadre() {
       litrosCell.style.color = "";
       montoCell.textContent = "-";
       filaError.classList.add("oculto");
+      sincronizarCierreGrupo(filaDatos, filaError, false);
       return;
     }
     const entrada = Number(entradaInput.value);
     const salida = Number(salidaInput.value);
     if (entrada < 0 || salida < 0) {
-      marcarError(i, litrosCell, montoCell, filaError, "Las lecturas no pueden ser negativas.");
+      marcarError(i, litrosCell, montoCell, filaDatos, filaError, "Las lecturas no pueden ser negativas.");
       return;
     }
     if (salida < entrada) {
-      marcarError(i, litrosCell, montoCell, filaError, "La salida no puede ser menor a la entrada.");
+      marcarError(i, litrosCell, montoCell, filaDatos, filaError, "La salida no puede ser menor a la entrada.");
       return;
     }
     // El precio se lee del input editable de la tarjeta "Precios" (precargado con el
     // vigente, pero el admin lo puede ajustar puntualmente para este cuadre).
     const precioInput = document.getElementById(`precioOverride-${l.combustible_id}`);
-    const precio = precioInput ? Number(precioInput.value) : NaN;
+    // Redondeado a entero igual que el servidor (que siempre trata este valor como un
+    // override, ver calcularLecturas() en cuadres.js), para que la vista previa no muestre
+    // un monto distinto al que realmente se va a guardar si se tipea un precio con decimales.
+    const precio = precioInput ? Math.round(Number(precioInput.value)) : NaN;
     if (!precioInput || precioInput.value === "" || Number.isNaN(precio) || precio < 0) {
-      marcarError(i, litrosCell, montoCell, filaError, "No hay un precio configurado para este combustible en esta sucursal.");
+      marcarError(i, litrosCell, montoCell, filaDatos, filaError, "No hay un precio configurado para este combustible en esta sucursal.");
       return;
     }
     filaError.classList.add("oculto");
+    sincronizarCierreGrupo(filaDatos, filaError, false);
     const litros = Math.round((salida - entrada) * 10) / 10;
     litrosCell.textContent = fmt(litros);
     litrosCell.style.color = "";

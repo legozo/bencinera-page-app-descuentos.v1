@@ -260,12 +260,23 @@ router.put("/reglas-descuento", requiereRol("admin"), async (req, res) => {
   }
   // El peso chileno no tiene centavos en uso: se redondea a entero (la columna ya no acepta decimales).
   const descuentoEntero = Math.round(Number(descuento_clp_litro));
-  const { rows } = await db.query(
-    `INSERT INTO reglas_descuento (tipo_socio_id, combustible_id, descuento_clp_litro)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [tipo_socio_id, combustible_id, descuentoEntero]
-  );
-  res.json(rows[0]);
+  if (!Number.isFinite(descuentoEntero) || descuentoEntero < 0) {
+    return res.status(400).json({ error: "descuento_clp_litro debe ser un número (0 o mayor)." });
+  }
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO reglas_descuento (tipo_socio_id, combustible_id, descuento_clp_litro)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [tipo_socio_id, combustible_id, descuentoEntero]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(400).json({ error: "El tipo de socio o el combustible no existen." });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al guardar la regla de descuento." });
+  }
 });
 
 /**
@@ -324,12 +335,23 @@ router.post("/precios", requiereRol("admin"), async (req, res) => {
   }
   // El peso chileno no tiene centavos en uso: se redondea a entero (la columna ya no acepta decimales).
   const precioEntero = Math.round(Number(precio_clp_litro));
-  const { rows } = await db.query(
-    `INSERT INTO precios_combustible (sucursal_id, combustible_id, precio_clp_litro, creado_por)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [sucursal_id, combustible_id, precioEntero, req.usuario.id]
-  );
-  res.status(201).json(rows[0]);
+  if (!Number.isFinite(precioEntero) || precioEntero < 0) {
+    return res.status(400).json({ error: "precio_clp_litro debe ser un número (0 o mayor)." });
+  }
+  try {
+    const { rows } = await db.query(
+      `INSERT INTO precios_combustible (sucursal_id, combustible_id, precio_clp_litro, creado_por)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [sucursal_id, combustible_id, precioEntero, req.usuario.id]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(400).json({ error: "La sucursal o el combustible no existen." });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al guardar el precio." });
+  }
 });
 
 module.exports = router;

@@ -112,9 +112,13 @@ function filtroCuadres(query) {
 function validarLecturas(lecturas) {
   if (!Array.isArray(lecturas) || lecturas.length === 0) return "Debe incluir al menos una lectura.";
   for (const l of lecturas) {
+    if (!l || typeof l !== "object") return "Cada lectura necesita máquina y combustible.";
     if (!l.maquina_id || !l.combustible_id) return "Cada lectura necesita máquina y combustible.";
     if (l.lectura_entrada === undefined || l.lectura_entrada === null || l.lectura_salida === undefined || l.lectura_salida === null) {
       return "Todas las lecturas necesitan entrada y salida.";
+    }
+    if (!Number.isFinite(Number(l.lectura_entrada)) || !Number.isFinite(Number(l.lectura_salida))) {
+      return "Entrada y salida deben ser números.";
     }
     if (Number(l.lectura_entrada) < 0 || Number(l.lectura_salida) < 0) return "Las lecturas no pueden ser negativas.";
     if (Number(l.lectura_salida) < Number(l.lectura_entrada)) return "La lectura de salida no puede ser menor a la entrada.";
@@ -148,7 +152,7 @@ async function calcularLecturas(client, sucursalId, lecturas, fechaPrecio, preci
   const indicePrecios = {};
   preciosRes.rows.forEach((p) => { indicePrecios[p.combustible_id] = Number(p.precio_clp_litro); });
 
-  if (preciosOverride && typeof preciosOverride === "object") {
+  if (preciosOverride && typeof preciosOverride === "object" && !Array.isArray(preciosOverride)) {
     Object.entries(preciosOverride).forEach(([combustibleId, precio]) => {
       const precioNum = Math.round(Number(precio));
       if (Number.isFinite(precioNum) && precioNum >= 0) {
@@ -468,27 +472,35 @@ router.get("/reportes", async (req, res) => {
  * literales (/turno, /reportes) — si no, Express las confundiría con un id.
  */
 router.get("/:id", async (req, res) => {
-  const cuadreRes = await db.query(
-    `SELECT c.*, s.nombre AS sucursal_nombre, u.nombre AS cerrado_por_nombre, u.apellido AS cerrado_por_apellido
-     FROM cuadres_caja c
-     JOIN sucursales s ON s.id = c.sucursal_id
-     JOIN usuarios u ON u.id = c.cerrado_por
-     WHERE c.id = $1`,
-    [req.params.id]
-  );
-  const cuadre = cuadreRes.rows[0];
-  if (!cuadre) return res.status(404).json({ error: "Cuadre no encontrado." });
+  try {
+    const cuadreRes = await db.query(
+      `SELECT c.*, s.nombre AS sucursal_nombre, u.nombre AS cerrado_por_nombre, u.apellido AS cerrado_por_apellido
+       FROM cuadres_caja c
+       JOIN sucursales s ON s.id = c.sucursal_id
+       JOIN usuarios u ON u.id = c.cerrado_por
+       WHERE c.id = $1`,
+      [req.params.id]
+    );
+    const cuadre = cuadreRes.rows[0];
+    if (!cuadre) return res.status(404).json({ error: "Cuadre no encontrado." });
 
-  const lecturasRes = await db.query(
-    `SELECT l.*, m.nombre AS maquina_nombre, co.nombre AS combustible_nombre
-     FROM cuadre_lecturas l
-     JOIN maquinas m ON m.id = l.maquina_id
-     JOIN combustibles co ON co.id = l.combustible_id
-     WHERE l.cuadre_id = $1
-     ORDER BY m.nombre, co.nombre`,
-    [cuadre.id]
-  );
-  res.json({ cuadre, lecturas: lecturasRes.rows });
+    const lecturasRes = await db.query(
+      `SELECT l.*, m.nombre AS maquina_nombre, co.nombre AS combustible_nombre
+       FROM cuadre_lecturas l
+       JOIN maquinas m ON m.id = l.maquina_id
+       JOIN combustibles co ON co.id = l.combustible_id
+       WHERE l.cuadre_id = $1
+       ORDER BY m.nombre, co.nombre`,
+      [cuadre.id]
+    );
+    res.json({ cuadre, lecturas: lecturasRes.rows });
+  } catch (err) {
+    if (err.code === "22P02") {
+      return res.status(400).json({ error: "Id de cuadre inválido." });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Error al obtener el cuadre." });
+  }
 });
 
 module.exports = router;
