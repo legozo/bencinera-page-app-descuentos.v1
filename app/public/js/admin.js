@@ -1361,8 +1361,9 @@ function renderFormularioCuadre(valoresPrevios) {
       <td data-etiqueta="Entrada"><input type="number" step="0.1" min="0" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
       <td data-etiqueta="Salida"><input type="number" step="0.1" min="0" id="salida-${i}" value="${valorSalida}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
       <td data-etiqueta="Litros" id="litros-${i}">-</td>
+      <td data-etiqueta="Monto" id="monto-${i}">-</td>
     </tr>
-    <tr id="filaError-${i}" class="oculto${finGrupo ? " grupo-fin" : ""}"><td colspan="5" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
+    <tr id="filaError-${i}" class="oculto${finGrupo ? " grupo-fin" : ""}"><td colspan="6" id="filaErrorTexto-${i}" style="padding:0 8px 8px; color:var(--rojo); font-size:12px;"></td></tr>`;
   }).join("");
 
   const valorTarjeta = valoresPrevios ? valoresPrevios.tarjeta : (cuadreInfo.existe ? cuadreInfo.cuadre.tarjeta_total : "");
@@ -1403,10 +1404,20 @@ function renderFormularioCuadre(valoresPrevios) {
     </div>
 
     <div class="tarjeta">
+      <h3>Precios vigentes</h3>
+      <div class="grid-2">
+        ${catalogos.combustibles.map((c) => {
+          const p = preciosCacheCuadre.find((pr) => pr.combustible_id === c.id);
+          return `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c.nombre}</div><div style="font-size:17px; font-weight:600;">${p ? `$${fmt(p.precio_clp_litro)}/L` : "Sin precio"}</div></div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <div class="tarjeta">
       <h3>Lecturas por máquina</h3>
       <p class="chico">Deja una fila vacía (entrada y salida) si esa máquina/combustible no tuvo movimiento este turno.</p>
       <table class="responsivo-movil">
-        <tr><th>Máquina</th><th>Combustible</th><th>Entrada</th><th>Salida</th><th>Litros</th></tr>
+        <tr><th>Máquina</th><th>Combustible</th><th>Entrada</th><th>Salida</th><th>Litros</th><th>Monto</th></tr>
         ${filasLecturas}
       </table>
     </div>
@@ -1507,9 +1518,10 @@ async function eliminarMaquina(id) {
 function recalcularCuadre() {
   let litrosPrecioTotal = 0;
 
-  const marcarError = (i, litrosCell, filaError, mensaje) => {
+  const marcarError = (i, litrosCell, montoCell, filaError, mensaje) => {
     litrosCell.textContent = "Inválido";
     litrosCell.style.color = "var(--rojo)";
+    montoCell.textContent = "-";
     document.getElementById(`filaErrorTexto-${i}`).textContent = mensaje;
     filaError.classList.remove("oculto");
   };
@@ -1518,27 +1530,29 @@ function recalcularCuadre() {
     const entradaInput = document.getElementById(`entrada-${i}`);
     const salidaInput = document.getElementById(`salida-${i}`);
     const litrosCell = document.getElementById(`litros-${i}`);
+    const montoCell = document.getElementById(`monto-${i}`);
     const filaError = document.getElementById(`filaError-${i}`);
 
     if (entradaInput.value === "" || salidaInput.value === "") {
       litrosCell.textContent = "-";
       litrosCell.style.color = "";
+      montoCell.textContent = "-";
       filaError.classList.add("oculto");
       return;
     }
     const entrada = Number(entradaInput.value);
     const salida = Number(salidaInput.value);
     if (entrada < 0 || salida < 0) {
-      marcarError(i, litrosCell, filaError, "Las lecturas no pueden ser negativas.");
+      marcarError(i, litrosCell, montoCell, filaError, "Las lecturas no pueden ser negativas.");
       return;
     }
     if (salida < entrada) {
-      marcarError(i, litrosCell, filaError, "La salida no puede ser menor a la entrada.");
+      marcarError(i, litrosCell, montoCell, filaError, "La salida no puede ser menor a la entrada.");
       return;
     }
     const precioObj = preciosCacheCuadre.find((p) => p.combustible_id === l.combustible_id);
     if (!precioObj) {
-      marcarError(i, litrosCell, filaError, "No hay un precio configurado para este combustible en esta sucursal.");
+      marcarError(i, litrosCell, montoCell, filaError, "No hay un precio configurado para este combustible en esta sucursal.");
       return;
     }
     filaError.classList.add("oculto");
@@ -1549,6 +1563,7 @@ function recalcularCuadre() {
     // Redondeado por línea igual que el servidor, para que la vista previa coincida
     // exactamente con lo que va a quedar guardado.
     const monto = Math.round(litros * Number(precioObj.precio_clp_litro) * 100) / 100;
+    montoCell.textContent = "$" + fmt(monto);
     litrosPrecioTotal += monto;
   });
 

@@ -183,8 +183,8 @@ CREATE INDEX IF NOT EXISTS idx_cuadres_sucursal ON cuadres_caja(sucursal_id, tur
 
 -- Lectura de entrada/salida (contador acumulado del surtidor, nunca baja) por máquina y
 -- combustible, dentro de un cuadre. litros y monto_clp quedan calculados y guardados al
--- momento del cierre (monto_clp usa el precio vigente en turno_inicio, no turno_fin — ver
--- el comentario en calcularLecturas() de cuadres.js para el motivo).
+-- momento del cierre (monto_clp usa el precio vigente en turno_fin, para que un precio
+-- actualizado a mitad de turno se refleje de inmediato — ver preciosVigentes() en cuadres.js).
 CREATE TABLE IF NOT EXISTS cuadre_lecturas (
     id SERIAL PRIMARY KEY,
     cuadre_id INTEGER NOT NULL REFERENCES cuadres_caja(id) ON DELETE CASCADE,

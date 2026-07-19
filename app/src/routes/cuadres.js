@@ -34,12 +34,25 @@ function turnoInfo(fecha, turno) {
   };
 }
 
-/** Efectivo (suma de descargas) y descuentos (suma de transacciones) dentro de una ventana horaria. */
+const UNA_HORA_MS = 60 * 60 * 1000;
+
+/**
+ * Efectivo (suma de descargas) y descuentos (suma de transacciones) dentro de una ventana
+ * horaria. Las descargas usan esa misma ventana corrida 1 hora hacia adelante (no ampliada):
+ * el bombero suele contar y registrar la descarga recién AL CERRAR el turno, así que la
+ * ventana "de descargas" de un turno en realidad va de turno_inicio+1h a turno_fin+1h. Como
+ * el turno siguiente empieza justo en turno_fin, su ventana de descargas arranca en
+ * turno_fin+1h — exactamente donde termina la de este turno, así que siguen sin pisarse ni
+ * dejar un hueco (salvo el primerísimo turno que se cierre alguna vez para una sucursal, que
+ * no tiene un turno anterior que capture su primera hora).
+ */
 async function totalesTurno(executor, sucursalId, inicio, fin) {
+  const inicioDescargas = new Date(inicio.getTime() + UNA_HORA_MS);
+  const finDescargas = new Date(fin.getTime() + UNA_HORA_MS);
   const [efectivoRes, descuentosRes] = await Promise.all([
     executor.query(
       "SELECT COALESCE(SUM(monto), 0) AS total FROM descargas WHERE sucursal_id = $1 AND creado_en >= $2 AND creado_en < $3",
-      [sucursalId, inicio, fin]
+      [sucursalId, inicioDescargas, finDescargas]
     ),
     executor.query(
       "SELECT COALESCE(SUM(descuento_total_clp), 0) AS total FROM transacciones WHERE sucursal_id = $1 AND creado_en >= $2 AND creado_en < $3",
@@ -53,11 +66,12 @@ async function totalesTurno(executor, sucursalId, inicio, fin) {
 }
 
 /**
- * Precio vigente de cada combustible EN LA FECHA del turno (no el más reciente/actual) —
- * el mismo que va a usar calcularLecturas() al guardar. Se manda al frontend para que la
- * vista previa en vivo (mientras se llena o edita el formulario) coincida con lo que
- * realmente se va a calcular, incluso si el turno es de una fecha pasada y el precio ya
- * cambió desde entonces.
+ * Precio vigente de cada combustible al MOMENTO EN QUE TERMINA el turno (no al inicio) — el
+ * mismo que va a usar calcularLecturas() al guardar. Usar turno_fin (no turno_inicio) hace
+ * que un precio actualizado a mitad de un turno que sigue vigente hoy se refleje de inmediato
+ * en ese cuadre, en vez de quedar pegado al precio de cuando arrancó el turno. Para un turno
+ * histórico ya terminado hace tiempo, sigue siendo el precio correcto de esa época. Se manda
+ * al frontend para que la vista previa en vivo coincida con lo que realmente se va a calcular.
  */
 async function preciosVigentes(executor, sucursalId, fecha) {
   const { rows } = await executor.query(
@@ -198,7 +212,7 @@ router.get("/turno", async (req, res) => {
          ORDER BY m.nombre, co.nombre`,
         [cuadre.id]
       ),
-      preciosVigentes(db, sucursal_id, inicio),
+      preciosVigentes(db, sucursal_id, fin),
     ]);
     return res.json({
       existe: true,
@@ -227,7 +241,7 @@ router.get("/turno", async (req, res) => {
       [sucursal_id, inicio]
     ),
     totalesTurno(db, sucursal_id, inicio, fin),
-    preciosVigentes(db, sucursal_id, inicio),
+    preciosVigentes(db, sucursal_id, fin),
   ]);
 
   const indiceLecturas = {};
@@ -270,7 +284,7 @@ router.post("/", async (req, res) => {
     client = await db.pool.connect();
     await client.query("BEGIN");
 
-    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, sucursal_id, lecturas, turnoInicio);
+    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, sucursal_id, lecturas, turnoFin);
     const { efectivo_total: efectivoTotal, descuentos_total: descuentosTotal } = await totalesTurno(client, sucursal_id, turnoInicio, turnoFin);
     const tarjetaTotal = Number(tarjeta_total);
     const diferencia = Math.round((litrosPrecioTotal - (efectivoTotal + tarjetaTotal + descuentosTotal)) * 100) / 100;
@@ -338,7 +352,7 @@ router.put("/:id", async (req, res) => {
       );
     }
 
-    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, cuadreActual.sucursal_id, lecturas, cuadreActual.turno_inicio);
+    const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, cuadreActual.sucursal_id, lecturas, cuadreActual.turno_fin);
     const { efectivo_total: efectivoTotal, descuentos_total: descuentosTotal } = await totalesTurno(client, cuadreActual.sucursal_id, cuadreActual.turno_inicio, cuadreActual.turno_fin);
     const tarjetaTotal = Number(tarjeta_total);
     const diferencia = Math.round((litrosPrecioTotal - (efectivoTotal + tarjetaTotal + descuentosTotal)) * 100) / 100;

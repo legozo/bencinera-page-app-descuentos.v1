@@ -73,8 +73,11 @@ router.get("/:id/impacto", async (req, res) => {
   const descarga = descargaRes.rows[0];
   if (!descarga) return res.status(404).json({ error: "Descarga no encontrada." });
 
+  // Misma ventana corrida 1 hora que usa totalesTurno() en cuadres.js al sumar descargas —
+  // si no coincidiera, esta comprobación podría decir "no afecta ningún cuadre" para una
+  // descarga que en realidad sí quedó sumada en el efectivo_total de un cuadre (o viceversa).
   const cuadreRes = await db.query(
-    "SELECT * FROM cuadres_caja WHERE sucursal_id = $1 AND turno_inicio <= $2 AND turno_fin > $2",
+    "SELECT * FROM cuadres_caja WHERE sucursal_id = $1 AND (turno_inicio + interval '1 hour') <= $2 AND (turno_fin + interval '1 hour') > $2",
     [descarga.sucursal_id, descarga.creado_en]
   );
   const cuadre = cuadreRes.rows[0];
