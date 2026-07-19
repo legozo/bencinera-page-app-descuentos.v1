@@ -18,7 +18,7 @@ router.get("/buscar/:rut", async (req, res) => {
   }
 
   const { rows } = await db.query(
-    `SELECT s.id, s.rut, s.dv, s.nombre, s.apellido, s.activo,
+    `SELECT s.id, s.rut, s.dv, s.nombre, s.apellido, s.activo, s.es_interno,
             ts.id AS tipo_socio_id, ts.nombre AS tipo_socio_nombre
      FROM socios s
      JOIN tipos_socio ts ON ts.id = s.tipo_socio_id
@@ -33,6 +33,11 @@ router.get("/buscar/:rut", async (req, res) => {
   const socio = rows[0];
   if (!socio.activo) {
     return res.json({ es_socio: false, motivo: "socio_inactivo", rut: cuerpo, dv });
+  }
+  if (socio.es_interno) {
+    // El socio interno de traspasos de combustible no existe para el bombero: se registra
+    // solo desde el panel admin (POST /transacciones/traspaso), nunca por RUT en el pistolero.
+    return res.json({ es_socio: false, rut: cuerpo, dv });
   }
 
   // El precio se busca para la sucursal del bombero que está consultando (cada sucursal
@@ -64,7 +69,11 @@ router.get("/buscar/:rut", async (req, res) => {
   });
 });
 
-/** Listado con búsqueda simple (solo admin). */
+/**
+ * Listado con búsqueda simple (solo admin). Excluye a propósito el socio interno de
+ * traspasos de combustible: no debe aparecer en "Gestionar socios" para que nadie lo
+ * edite/reasigne por accidente — solo se crea/modifica directo en la base de datos.
+ */
 router.get("/", requiereRol("admin"), async (req, res) => {
   const { q } = req.query;
   let rows;
@@ -73,7 +82,7 @@ router.get("/", requiereRol("admin"), async (req, res) => {
     ({ rows } = await db.query(
       `SELECT s.*, ts.nombre AS tipo_socio_nombre
        FROM socios s JOIN tipos_socio ts ON ts.id = s.tipo_socio_id
-       WHERE s.rut ILIKE $1 OR s.nombre ILIKE $1 OR s.apellido ILIKE $1
+       WHERE s.es_interno = false AND (s.rut ILIKE $1 OR s.nombre ILIKE $1 OR s.apellido ILIKE $1)
        ORDER BY s.nombre LIMIT 200`,
       [like]
     ));
@@ -81,6 +90,7 @@ router.get("/", requiereRol("admin"), async (req, res) => {
     ({ rows } = await db.query(
       `SELECT s.*, ts.nombre AS tipo_socio_nombre
        FROM socios s JOIN tipos_socio ts ON ts.id = s.tipo_socio_id
+       WHERE s.es_interno = false
        ORDER BY s.nombre LIMIT 200`
     ));
   }
@@ -117,8 +127,12 @@ router.post("/", requiereRol("admin"), async (req, res) => {
   }
 });
 
-/** Editar socio (solo admin). */
+/** Editar socio (solo admin). El socio interno de traspasos no se puede tocar desde acá. */
 router.put("/:id", requiereRol("admin"), async (req, res) => {
+  const proteccion = await db.query("SELECT es_interno FROM socios WHERE id = $1", [req.params.id]);
+  if (proteccion.rows[0]?.es_interno) {
+    return res.status(403).json({ error: "Este socio es de uso interno para traspasos de combustible y no se puede modificar desde el panel." });
+  }
   const { nombre, apellido, tipo_socio_id, activo, telefono, email, direccion } = req.body || {};
   // Nota: antes esto usaba `apellido || null` (sin COALESCE), lo que borraba apellido/telefono/email
   // cada vez que solo se mandaba { activo } (ej. al activar/desactivar). Se corrigió a COALESCE
@@ -147,6 +161,10 @@ router.put("/:id", requiereRol("admin"), async (req, res) => {
  * devuelve un error claro sugiriendo desactivarlo en lugar de eliminarlo.
  */
 router.delete("/:id", requiereRol("admin"), async (req, res) => {
+  const proteccion = await db.query("SELECT es_interno FROM socios WHERE id = $1", [req.params.id]);
+  if (proteccion.rows[0]?.es_interno) {
+    return res.status(403).json({ error: "Este socio es de uso interno para traspasos de combustible y no se puede eliminar desde el panel." });
+  }
   try {
     const { rowCount } = await db.query("DELETE FROM socios WHERE id = $1", [req.params.id]);
     if (rowCount === 0) return res.status(404).json({ error: "Socio no encontrado." });

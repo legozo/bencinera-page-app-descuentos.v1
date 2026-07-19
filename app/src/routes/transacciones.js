@@ -13,7 +13,7 @@ router.use(requiereAuth);
  * que venga del cliente — usando el precio/descuento vigente EN LA FECHA indicada (que para
  * una venta en línea es "ahora", y para una venta sincronizada es la hora real en que ocurrió).
  */
-async function registrarVenta({ sucursalId, usuarioId, rut, combustibleId, litros, timestamp, idLocal }) {
+async function registrarVenta({ sucursalId, usuarioId, rut, combustibleId, litros, timestamp, idLocal, permitirInterno = false }) {
   const litrosNum = Number(litros);
   if (!combustibleId || !litrosNum || litrosNum <= 0) {
     return { ok: false, status: 400, error: "Combustible y litros (mayor a 0) son obligatorios." };
@@ -55,10 +55,21 @@ async function registrarVenta({ sucursalId, usuarioId, rut, combustibleId, litro
   const precioLitro = Number(precioRes.rows[0].precio_clp_litro);
 
   const socioRes = await db.query("SELECT * FROM socios WHERE rut = $1 AND activo = true", [cuerpo]);
-  const socio = socioRes.rows[0];
+  let socio = socioRes.rows[0];
+  if (socio && socio.es_interno && !permitirInterno) {
+    // El socio interno de traspasos de combustible solo se puede usar desde POST /traspaso
+    // (admin). Si alguien intenta esa RUT desde el flujo normal de venta, se trata como si
+    // no fuera socio (sin descuento) en vez de aplicar el 100% por error.
+    socio = undefined;
+  }
 
   let descuentoPorLitro = 0;
-  if (socio) {
+  if (socio && socio.es_interno) {
+    // Traspaso interno: el descuento siempre es el 100% del precio vigente en ese momento,
+    // no un monto fijo en reglas_descuento — así nunca queda desactualizado cuando cambia el
+    // precio del combustible.
+    descuentoPorLitro = precioLitro;
+  } else if (socio) {
     const reglaRes = await db.query(
       `SELECT descuento_clp_litro FROM reglas_descuento
        WHERE tipo_socio_id = $1 AND combustible_id = $2 AND vigente_desde <= $3
@@ -112,6 +123,35 @@ router.post("/", requiereRol("bombero", "admin"), async (req, res) => {
     rut,
     combustibleId: combustible_id,
     litros,
+  });
+  if (!resultado.ok) return res.status(resultado.status).json({ error: resultado.error });
+  res.status(201).json(resultado);
+});
+
+/**
+ * Registrar un traspaso de combustible (movimiento entre estanques o hacia otra sucursal,
+ * no una venta real): usa internamente el único socio marcado es_interno, con 100% de
+ * descuento, para que el litraje quede reflejado en el cuadre de caja sin figurar como un
+ * descuento real a un socio. Solo admin — el bombero nunca ve ni puede usar este socio.
+ */
+router.post("/traspaso", requiereRol("admin"), async (req, res) => {
+  const { sucursal_id, combustible_id, litros } = req.body || {};
+  if (!sucursal_id) {
+    return res.status(400).json({ error: "Sucursal es obligatoria." });
+  }
+  const internoRes = await db.query("SELECT rut, dv FROM socios WHERE es_interno = true LIMIT 1");
+  if (!internoRes.rows[0]) {
+    return res.status(500).json({
+      error: "No existe el socio interno para traspasos. Debe crearse directo en la base de datos.",
+    });
+  }
+  const resultado = await registrarVenta({
+    sucursalId: sucursal_id,
+    usuarioId: req.usuario.id,
+    rut: `${internoRes.rows[0].rut}-${internoRes.rows[0].dv}`,
+    combustibleId: combustible_id,
+    litros,
+    permitirInterno: true,
   });
   if (!resultado.ok) return res.status(resultado.status).json({ error: resultado.error });
   res.status(201).json(resultado);

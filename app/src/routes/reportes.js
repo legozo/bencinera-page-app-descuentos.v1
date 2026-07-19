@@ -8,7 +8,10 @@ router.use(requiereAuth, requiereRol("admin"));
 /** Resumen general: litros y descuento total, agrupado por sucursal y por combustible. */
 router.get("/resumen", async (req, res) => {
   const { desde, hasta, sucursal_id } = req.query;
-  const condiciones = [];
+  // Excluye siempre al socio interno de traspasos de combustible: sus litros sí cuentan para
+  // el cuadre de caja (vía totalesTurno en cuadres.js), pero no son un descuento real a un
+  // socio, así que no deben inflar estos totales/reportes.
+  const condiciones = ["(s.es_interno IS NOT TRUE)"];
   const valores = [];
 
   if (desde) {
@@ -39,6 +42,7 @@ router.get("/resumen", async (req, res) => {
        FROM transacciones t
        JOIN sucursales su ON su.id = t.sucursal_id
        JOIN combustibles c ON c.id = t.combustible_id
+       LEFT JOIN socios s ON s.id = t.socio_id
        ${where}
        GROUP BY su.nombre, c.nombre
        ORDER BY su.nombre, c.nombre`,
@@ -48,7 +52,9 @@ router.get("/resumen", async (req, res) => {
       `SELECT COUNT(*)::int AS transacciones, COALESCE(SUM(t.litros),0) AS litros,
               COALESCE(SUM(t.descuento_total_clp),0) AS descuento_total,
               COALESCE(SUM(t.monto_total_clp),0) AS monto_total
-       FROM transacciones t ${where}`,
+       FROM transacciones t
+       LEFT JOIN socios s ON s.id = t.socio_id
+       ${where}`,
       valores
     ),
   ]);

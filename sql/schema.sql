@@ -78,11 +78,17 @@ CREATE TABLE IF NOT EXISTS socios (
     fecha_registro DATE NOT NULL DEFAULT CURRENT_DATE,
     telefono VARCHAR(30),
     email VARCHAR(120),
-    direccion VARCHAR(200)
+    direccion VARCHAR(200),
+    -- Marca el único socio usado para registrar traspasos de combustible entre estanques/
+    -- sucursales (100% de descuento, para que el litraje cuadre en el cuadre de caja sin ser
+    -- una venta real). Se excluye a propósito de listados, edición y reportes de descuentos a
+    -- socios reales; solo se crea/modifica a mano en la base de datos, nunca desde el panel.
+    es_interno BOOLEAN NOT NULL DEFAULT false
 );
 
 -- Red de seguridad por si esta tabla ya existía de una instalación anterior a este cambio.
 ALTER TABLE socios ADD COLUMN IF NOT EXISTS direccion VARCHAR(200);
+ALTER TABLE socios ADD COLUMN IF NOT EXISTS es_interno BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_socios_rut ON socios(rut);
 

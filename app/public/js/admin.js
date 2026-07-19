@@ -383,6 +383,7 @@ async function cargarHistorial() {
   usuariosCacheHistorial = await Api.get("/usuarios");
   const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
   const opcionesBombero = usuariosCacheHistorial.map((u) => `<option value="${u.id}">${u.nombre} ${u.apellido || ""}</option>`).join("");
+  const opcionesCombustibleTraspaso = catalogos.combustibles.map((c) => `<option value="${c.id}">${c.nombre}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
@@ -398,8 +399,52 @@ async function cargarHistorial() {
       <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosHistorial()">Limpiar filtros</button>
       <button class="secundario" style="margin-top:10px;" onclick="exportarHistorialCSV()">Exportar a Excel</button>
     </div>
+    <div class="tarjeta">
+      <button class="secundario" onclick="toggleFormTraspaso()">+ Registrar traspaso de combustible</button>
+      <div id="formTraspaso" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc;">
+        <p class="chico" style="margin-top:0;">Para cuando se mueve combustible entre estanques o hacia otra sucursal (no es una venta): queda en el historial con 100% de descuento para que el litraje cuadre en el cuadre de caja, pero no se suma en Reportes Descuentos.</p>
+        <div class="grid-2">
+          <div><label>Sucursal</label><select id="tSucursal">${opcionesSucursal}</select></div>
+          <div><label>Combustible</label><select id="tCombustible">${opcionesCombustibleTraspaso}</select></div>
+          <div><label>Litros</label><input id="tLitros" type="number" step="0.001" min="0.001" placeholder="0"></div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px;">
+          <button class="primario" style="margin-top:0;" onclick="registrarTraspaso()">Guardar</button>
+          <button class="secundario" onclick="toggleFormTraspaso()">Cancelar</button>
+        </div>
+        <div id="errorTraspaso" class="mensaje-error oculto"></div>
+      </div>
+    </div>
     <div class="tarjeta"><div id="tablaHistorial">${skeletonLineas(6)}</div></div>`;
   buscarHistorial();
+}
+
+/** Muestra u oculta el mini formulario para registrar un traspaso de combustible (y limpia los campos al cerrarlo). */
+function toggleFormTraspaso() {
+  const div = document.getElementById("formTraspaso");
+  div.classList.toggle("oculto");
+  if (div.classList.contains("oculto")) {
+    document.getElementById("tLitros").value = "";
+    document.getElementById("errorTraspaso").classList.add("oculto");
+  }
+}
+
+async function registrarTraspaso() {
+  const errorDiv = document.getElementById("errorTraspaso");
+  errorDiv.classList.add("oculto");
+  const datos = {
+    sucursal_id: Number(document.getElementById("tSucursal").value),
+    combustible_id: Number(document.getElementById("tCombustible").value),
+    litros: document.getElementById("tLitros").value,
+  };
+  try {
+    await Api.post("/transacciones/traspaso", datos);
+    toggleFormTraspaso();
+    buscarHistorial();
+  } catch (err) {
+    errorDiv.textContent = err.message;
+    errorDiv.classList.remove("oculto");
+  }
 }
 
 /** Deja todos los filtros de Historial en blanco (muestra todo el historial sin filtrar). */
