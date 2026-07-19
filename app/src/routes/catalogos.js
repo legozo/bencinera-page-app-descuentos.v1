@@ -307,8 +307,9 @@ router.get("/precios", requiereRol("admin"), async (req, res) => {
 });
 
 /**
- * Historial completo de precios para una combinación sucursal + combustible específica,
- * del más reciente al más antiguo, con el nombre de quién registró cada cambio.
+ * Historial de precios para una combinación sucursal + combustible específica, del más
+ * reciente al más antiguo, con el nombre de quién registró cada cambio. Limitado a los
+ * últimos 25 para no traer años de cambios de precio en una sola consulta.
  */
 router.get("/precios/historial", requiereRol("admin"), async (req, res) => {
   const { sucursal_id, combustible_id } = req.query;
@@ -321,7 +322,8 @@ router.get("/precios/historial", requiereRol("admin"), async (req, res) => {
      FROM precios_combustible p
      LEFT JOIN usuarios u ON u.id = p.creado_por
      WHERE p.sucursal_id = $1 AND p.combustible_id = $2
-     ORDER BY p.vigente_desde DESC`,
+     ORDER BY p.vigente_desde DESC
+     LIMIT 25`,
     [sucursal_id, combustible_id]
   );
   res.json(rows);
