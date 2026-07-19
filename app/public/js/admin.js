@@ -377,13 +377,17 @@ let totalHistorial = 0;
 let sumaDescuentosHistorial = 0; // suma de TODAS las filas que calzan con el filtro, no solo la página actual
 const POR_PAGINA_HISTORIAL = 500;
 
+let preciosCacheTraspaso = []; // filas de /catalogos/precios, para mostrar el precio vigente en el dropdown de combustible del traspaso
+
 async function cargarHistorial() {
   const cont = document.getElementById("tab-historial");
   await cargarCatalogos();
   usuariosCacheHistorial = await Api.get("/usuarios");
+  preciosCacheTraspaso = await Api.get("/catalogos/precios");
   const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
   const opcionesBombero = usuariosCacheHistorial.map((u) => `<option value="${u.id}">${u.nombre} ${u.apellido || ""}</option>`).join("");
-  const opcionesCombustibleTraspaso = catalogos.combustibles.map((c) => `<option value="${c.id}">${c.nombre}</option>`).join("");
+  const primeraSucursal = catalogos.sucursales[0] ? catalogos.sucursales[0].id : null;
+  const opcionesCombustibleTraspaso = opcionesCombustibleConPrecio(primeraSucursal);
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
@@ -404,7 +408,7 @@ async function cargarHistorial() {
       <div id="formTraspaso" class="oculto" style="border:1px solid var(--borde); border-radius:8px; padding:16px; margin-top:12px; background:#fafbfc;">
         <p class="chico" style="margin-top:0;">Para cuando se mueve combustible entre estanques o hacia otra sucursal (no es una venta): queda en el historial con 100% de descuento para que el litraje cuadre en el cuadre de caja, pero no se suma en Reportes Descuentos.</p>
         <div class="grid-2">
-          <div><label>Sucursal</label><select id="tSucursal">${opcionesSucursal}</select></div>
+          <div><label>Sucursal</label><select id="tSucursal" onchange="actualizarCombustiblesTraspaso()">${opcionesSucursal}</select></div>
           <div><label>Combustible</label><select id="tCombustible">${opcionesCombustibleTraspaso}</select></div>
           <div><label>Litros</label><input id="tLitros" type="number" step="0.001" min="0.001" placeholder="0"></div>
         </div>
@@ -417,6 +421,21 @@ async function cargarHistorial() {
     </div>
     <div class="tarjeta"><div id="tablaHistorial">${skeletonLineas(6)}</div></div>`;
   buscarHistorial();
+}
+
+/** Arma las <option> de combustible para el form de traspaso, con el precio vigente de la sucursal indicada. */
+function opcionesCombustibleConPrecio(sucursalId) {
+  return catalogos.combustibles.map((c) => {
+    const precio = preciosCacheTraspaso.find((p) => p.combustible_id === c.id && p.sucursal_id === Number(sucursalId));
+    const etiquetaPrecio = precio ? `$${fmt(precio.precio_clp_litro)}/L` : "sin precio configurado";
+    return `<option value="${c.id}">${c.nombre} — ${etiquetaPrecio}</option>`;
+  }).join("");
+}
+
+/** Se llama al cambiar la sucursal del form de traspaso, para refrescar el precio mostrado junto a cada combustible. */
+function actualizarCombustiblesTraspaso() {
+  const sucursalId = document.getElementById("tSucursal").value;
+  document.getElementById("tCombustible").innerHTML = opcionesCombustibleConPrecio(sucursalId);
 }
 
 /** Muestra u oculta el mini formulario para registrar un traspaso de combustible (y limpia los campos al cerrarlo). */
