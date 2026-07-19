@@ -35,20 +35,24 @@ function turnoInfo(fecha, turno) {
 }
 
 const UNA_HORA_MS = 60 * 60 * 1000;
+const QUINCE_MIN_MS = 15 * 60 * 1000;
 
 /**
  * Efectivo (suma de descargas) y descuentos (suma de transacciones) dentro de una ventana
- * horaria. Las descargas usan esa misma ventana corrida 1 hora hacia adelante (no ampliada):
- * el bombero suele contar y registrar la descarga recién AL CERRAR el turno, así que la
- * ventana "de descargas" de un turno en realidad va de turno_inicio+1h a turno_fin+1h. Como
- * el turno siguiente empieza justo en turno_fin, su ventana de descargas arranca en
- * turno_fin+1h — exactamente donde termina la de este turno, así que siguen sin pisarse ni
- * dejar un hueco (salvo el primerísimo turno que se cierre alguna vez para una sucursal, que
- * no tiene un turno anterior que capture su primera hora).
+ * horaria. Ambas usan esa misma ventana corrida hacia adelante (no ampliada), por el mismo
+ * motivo: un registro hecho justo al filo del cierre del turno (o unos minutos después) debe
+ * seguir contando para el turno que se está cerrando, no para el siguiente. Las descargas se
+ * corren 1 hora (el bombero suele contarlas recién al cerrar); los descuentos se corren solo
+ * 15 minutos (una venta puede demorar un poco en sincronizarse, pero no horas). Como el turno
+ * siguiente empieza justo en turno_fin, su ventana corrida arranca exactamente donde termina
+ * la de este turno, así que nunca se pisan ni dejan un hueco (salvo el primerísimo turno que
+ * se cierre alguna vez para una sucursal, que no tiene un turno anterior que capture ese borde).
  */
 async function totalesTurno(executor, sucursalId, inicio, fin) {
   const inicioDescargas = new Date(inicio.getTime() + UNA_HORA_MS);
   const finDescargas = new Date(fin.getTime() + UNA_HORA_MS);
+  const inicioDescuentos = new Date(inicio.getTime() + QUINCE_MIN_MS);
+  const finDescuentos = new Date(fin.getTime() + QUINCE_MIN_MS);
   const [efectivoRes, descuentosRes] = await Promise.all([
     executor.query(
       "SELECT COALESCE(SUM(monto), 0) AS total FROM descargas WHERE sucursal_id = $1 AND creado_en >= $2 AND creado_en < $3",
@@ -56,7 +60,7 @@ async function totalesTurno(executor, sucursalId, inicio, fin) {
     ),
     executor.query(
       "SELECT COALESCE(SUM(descuento_total_clp), 0) AS total FROM transacciones WHERE sucursal_id = $1 AND creado_en >= $2 AND creado_en < $3",
-      [sucursalId, inicio, fin]
+      [sucursalId, inicioDescuentos, finDescuentos]
     ),
   ]);
   return {
