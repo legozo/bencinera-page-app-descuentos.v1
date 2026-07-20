@@ -1501,7 +1501,13 @@ function capturarValoresCuadre() {
     if (precioEl && precioEl.value !== "") valoresPrecios[c.id] = precioEl.value;
   });
   const tarjetaEl = document.getElementById("cuadreTarjeta");
-  return { lecturas: valoresLecturas, precios: valoresPrecios, tarjeta: tarjetaEl ? tarjetaEl.value : "" };
+  const descuentosEl = document.getElementById("cuadreDescuentos");
+  return {
+    lecturas: valoresLecturas,
+    precios: valoresPrecios,
+    tarjeta: tarjetaEl ? tarjetaEl.value : "",
+    descuentos: descuentosEl ? descuentosEl.value : "",
+  };
 }
 
 /**
@@ -1601,6 +1607,10 @@ function renderFormularioCuadre(valoresPrevios) {
   }).join("");
 
   const valorTarjeta = valoresPrevios ? valoresPrevios.tarjeta : (cuadreInfo.existe ? cuadreInfo.cuadre.tarjeta_total : "");
+  // Híbrido: el campo de descuentos se precarga con el auto-calculado (cuadre nuevo) o con el
+  // guardado (cuadre existente) — ambos ya vienen en cuadreInfo.descuentos_total desde el
+  // backend — pero queda editable para poder ajustarlo/probar sin depender de transacciones.
+  const valorDescuentos = valoresPrevios ? valoresPrevios.descuentos : cuadreInfo.descuentos_total;
 
   let avisoEstado = "";
   if (cuadreInfo.existe) {
@@ -1668,7 +1678,11 @@ function renderFormularioCuadre(valoresPrevios) {
       <div class="grid-2" style="margin-bottom:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Precio × litro</div><div id="statLitrosPrecio" style="font-size:17px; font-weight:600;">$0</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo (descargas)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.efectivo_total)}</div></div>
-        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos (app)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.descuentos_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
+          <label style="margin:0;">Descuentos (app)</label>
+          <input type="number" step="1" min="0" id="cuadreDescuentos" value="${valorDescuentos}" oninput="recalcularCuadre(); guardarBorradorCuadre();" placeholder="$" ${soloLectura ? "disabled" : ""}>
+          <div class="chico" style="margin-top:4px;">Precargado con el total calculado de las transacciones del turno. Se puede ajustar a mano para este cuadre.</div>
+        </div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
           <label style="margin:0;">Tarjeta (informado por la máquina de tarjetas)</label>
           <input type="number" step="1" min="0" id="cuadreTarjeta" value="${valorTarjeta}" oninput="recalcularCuadre(); guardarBorradorCuadre();" placeholder="$" ${soloLectura ? "disabled" : ""}>
@@ -1832,7 +1846,9 @@ function recalcularCuadre() {
   });
 
   const tarjeta = Number(document.getElementById("cuadreTarjeta").value) || 0;
-  const diferencia = Math.round((litrosPrecioTotal - (cuadreInfo.efectivo_total + tarjeta + cuadreInfo.descuentos_total)) * 100) / 100;
+  // Descuentos ahora es un input editable (precargado con el auto-calculado), no un valor fijo.
+  const descuentos = Number(document.getElementById("cuadreDescuentos").value) || 0;
+  const diferencia = Math.round((litrosPrecioTotal - (cuadreInfo.efectivo_total + tarjeta + descuentos)) * 100) / 100;
 
   document.getElementById("statLitrosPrecio").textContent = "$" + fmt(litrosPrecioTotal);
   document.getElementById("cuadreDiferencia").innerHTML =
@@ -1896,6 +1912,17 @@ function leerTarjetaCuadre(errorDiv) {
   return Number(tarjetaInput.value);
 }
 
+/** Igual que leerTarjetaCuadre pero para el monto de descuentos (editable en esta versión). */
+function leerDescuentosCuadre(errorDiv) {
+  const descuentosInput = document.getElementById("cuadreDescuentos");
+  if (descuentosInput.value === "" || Number(descuentosInput.value) < 0) {
+    errorDiv.textContent = "Ingresa el monto de descuentos (0 o mayor).";
+    errorDiv.classList.remove("oculto");
+    return null;
+  }
+  return Number(descuentosInput.value);
+}
+
 async function cerrarTurno() {
   const errorDiv = document.getElementById("errorCuadre");
   errorDiv.classList.add("oculto");
@@ -1908,6 +1935,8 @@ async function cerrarTurno() {
   }
   const tarjetaTotal = leerTarjetaCuadre(errorDiv);
   if (tarjetaTotal === null) return;
+  const descuentosTotal = leerDescuentosCuadre(errorDiv);
+  if (descuentosTotal === null) return;
 
   const fecha = document.getElementById("cuadreFecha").value;
   let mensajeConfirmacion = `¿Cerrar el turno ${NOMBRE_TURNO[cuadreInfo.turno]} del ${fecha}? Esta acción no se puede deshacer.`;
@@ -1924,6 +1953,7 @@ async function cerrarTurno() {
       fecha,
       turno: cuadreInfo.turno,
       tarjeta_total: tarjetaTotal,
+      descuentos_total: descuentosTotal,
       lecturas,
       precios_override: leerPreciosOverrideCuadre(),
     });
@@ -1950,12 +1980,14 @@ async function guardarEdicionCuadre() {
   }
   const tarjetaTotal = leerTarjetaCuadre(errorDiv);
   if (tarjetaTotal === null) return;
+  const descuentosTotal = leerDescuentosCuadre(errorDiv);
+  if (descuentosTotal === null) return;
 
   const confirmado = await confirmarAccion("¿Guardar los cambios de este cuadre? Va a quedar marcado como editado.", "Guardar cambios");
   if (!confirmado) return;
 
   try {
-    await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, lecturas, precios_override: leerPreciosOverrideCuadre() });
+    await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, descuentos_total: descuentosTotal, lecturas, precios_override: leerPreciosOverrideCuadre() });
     borrarBorradorCuadre(); // ya quedó guardado en el servidor, el borrador local ya no aplica
     await avisar("Cambios guardados.", "Listo");
     await cargarTurnoCuadre();

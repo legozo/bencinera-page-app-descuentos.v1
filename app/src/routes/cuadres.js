@@ -88,6 +88,15 @@ async function preciosVigentes(executor, sucursalId, fecha) {
   return rows;
 }
 
+/** true si el body trae un descuento manual (no vacío). En esta versión de prueba, el admin
+ * puede teclear el total de descuentos en el cuadre igual que la tarjeta, en vez de que se
+ * calcule solo desde las transacciones del turno — así se pueden ensayar cierres sin tener
+ * que meter descuentos a la base de datos. Si el campo viene vacío/ausente, se usa el
+ * auto-calculado de totalesTurno() (comportamiento original). */
+function traeDescuentoManual(valor) {
+  return valor !== undefined && valor !== null && valor !== "";
+}
+
 /** Arma el WHERE compartido por el historial y los reportes de cuadres (mismos filtros en ambos). */
 function filtroCuadres(query) {
   const { desde, hasta, sucursal_id } = query;
@@ -333,13 +342,17 @@ router.get("/turno", async (req, res) => {
 
 /** Cierra un turno nuevo (fecha+turno elegidos, no tiene que ser "el de ahora"). */
 router.post("/", async (req, res) => {
-  const { sucursal_id, fecha, turno, tarjeta_total, lecturas, precios_override } = req.body || {};
+  const { sucursal_id, fecha, turno, tarjeta_total, descuentos_total, lecturas, precios_override } = req.body || {};
 
   // Number.isFinite y no solo "< 0": rechaza también NaN (ej. tarjeta_total "abc", donde
   // NaN < 0 es false) e Infinity, que Postgres aceptaría guardar en NUMERIC y envenenarían
   // las sumas de todos los reportes de cuadres.
   if (!sucursal_id || !fecha || !turno || !Number.isFinite(Number(tarjeta_total)) || Number(tarjeta_total) < 0) {
     return res.status(400).json({ error: "Sucursal, fecha, turno y tarjeta_total (0 o mayor) son obligatorios." });
+  }
+  // Descuento manual (opcional): misma validación que tarjeta_total. Si no viene, se calcula solo.
+  if (traeDescuentoManual(descuentos_total) && (!Number.isFinite(Number(descuentos_total)) || Number(descuentos_total) < 0)) {
+    return res.status(400).json({ error: "descuentos_total debe ser un número (0 o mayor)." });
   }
   const info = turnoInfo(fecha, turno);
   if (!info) return res.status(400).json({ error: "Fecha o turno inválidos." });
@@ -356,7 +369,10 @@ router.post("/", async (req, res) => {
     await client.query("BEGIN");
 
     const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, sucursal_id, lecturas, turnoFin, precios_override);
-    const { efectivo_total: efectivoTotal, descuentos_total: descuentosTotal } = await totalesTurno(client, sucursal_id, turnoInicio, turnoFin);
+    const totales = await totalesTurno(client, sucursal_id, turnoInicio, turnoFin);
+    const efectivoTotal = totales.efectivo_total;
+    // Descuentos: el manual del body si vino, o el auto-calculado desde las transacciones.
+    const descuentosTotal = traeDescuentoManual(descuentos_total) ? Number(descuentos_total) : totales.descuentos_total;
     const tarjetaTotal = Number(tarjeta_total);
     const diferencia = Math.round((litrosPrecioTotal - (efectivoTotal + tarjetaTotal + descuentosTotal)) * 100) / 100;
 
@@ -392,10 +408,13 @@ router.post("/", async (req, res) => {
  * valores nuevos y deja registrado quién editó y cuándo (pisando el cerrado_por original).
  */
 router.put("/:id", async (req, res) => {
-  const { tarjeta_total, lecturas, precios_override } = req.body || {};
+  const { tarjeta_total, descuentos_total, lecturas, precios_override } = req.body || {};
   // Mismo Number.isFinite que en POST /: rechaza NaN/Infinity, no solo negativos.
   if (!Number.isFinite(Number(tarjeta_total)) || Number(tarjeta_total) < 0) {
     return res.status(400).json({ error: "tarjeta_total (0 o mayor) es obligatorio." });
+  }
+  if (traeDescuentoManual(descuentos_total) && (!Number.isFinite(Number(descuentos_total)) || Number(descuentos_total) < 0)) {
+    return res.status(400).json({ error: "descuentos_total debe ser un número (0 o mayor)." });
   }
   const errorLecturas = validarLecturas(lecturas);
   if (errorLecturas) return res.status(400).json({ error: errorLecturas });
@@ -425,7 +444,9 @@ router.put("/:id", async (req, res) => {
     }
 
     const { litrosPrecioTotal, lecturasCalculadas } = await calcularLecturas(client, cuadreActual.sucursal_id, lecturas, cuadreActual.turno_fin, precios_override);
-    const { efectivo_total: efectivoTotal, descuentos_total: descuentosTotal } = await totalesTurno(client, cuadreActual.sucursal_id, cuadreActual.turno_inicio, cuadreActual.turno_fin);
+    const totales = await totalesTurno(client, cuadreActual.sucursal_id, cuadreActual.turno_inicio, cuadreActual.turno_fin);
+    const efectivoTotal = totales.efectivo_total;
+    const descuentosTotal = traeDescuentoManual(descuentos_total) ? Number(descuentos_total) : totales.descuentos_total;
     const tarjetaTotal = Number(tarjeta_total);
     const diferencia = Math.round((litrosPrecioTotal - (efectivoTotal + tarjetaTotal + descuentosTotal)) * 100) / 100;
 
