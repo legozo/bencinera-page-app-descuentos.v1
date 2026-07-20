@@ -111,9 +111,15 @@ function filtroCuadres(query) {
 /** Validaciones de forma comunes a crear y editar un cuadre (no negativas, salida>=entrada, etc). */
 function validarLecturas(lecturas) {
   if (!Array.isArray(lecturas) || lecturas.length === 0) return "Debe incluir al menos una lectura.";
+  const combinacionesVistas = new Set();
   for (const l of lecturas) {
     if (!l || typeof l !== "object") return "Cada lectura necesita máquina y combustible.";
     if (!l.maquina_id || !l.combustible_id) return "Cada lectura necesita máquina y combustible.";
+    // Dos lecturas para la misma máquina+combustible contarían los litros doble; el índice
+    // único de la base también lo rechaza, pero acá el error queda claro para el usuario.
+    const combinacion = `${l.maquina_id}-${l.combustible_id}`;
+    if (combinacionesVistas.has(combinacion)) return "Hay dos lecturas para la misma máquina y combustible.";
+    combinacionesVistas.add(combinacion);
     if (l.lectura_entrada === undefined || l.lectura_entrada === null || l.lectura_salida === undefined || l.lectura_salida === null) {
       return "Todas las lecturas necesitan entrada y salida.";
     }
@@ -329,7 +335,10 @@ router.get("/turno", async (req, res) => {
 router.post("/", async (req, res) => {
   const { sucursal_id, fecha, turno, tarjeta_total, lecturas, precios_override } = req.body || {};
 
-  if (!sucursal_id || !fecha || !turno || tarjeta_total === undefined || Number(tarjeta_total) < 0) {
+  // Number.isFinite y no solo "< 0": rechaza también NaN (ej. tarjeta_total "abc", donde
+  // NaN < 0 es false) e Infinity, que Postgres aceptaría guardar en NUMERIC y envenenarían
+  // las sumas de todos los reportes de cuadres.
+  if (!sucursal_id || !fecha || !turno || !Number.isFinite(Number(tarjeta_total)) || Number(tarjeta_total) < 0) {
     return res.status(400).json({ error: "Sucursal, fecha, turno y tarjeta_total (0 o mayor) son obligatorios." });
   }
   const info = turnoInfo(fecha, turno);
@@ -384,7 +393,8 @@ router.post("/", async (req, res) => {
  */
 router.put("/:id", async (req, res) => {
   const { tarjeta_total, lecturas, precios_override } = req.body || {};
-  if (tarjeta_total === undefined || Number(tarjeta_total) < 0) {
+  // Mismo Number.isFinite que en POST /: rechaza NaN/Infinity, no solo negativos.
+  if (!Number.isFinite(Number(tarjeta_total)) || Number(tarjeta_total) < 0) {
     return res.status(400).json({ error: "tarjeta_total (0 o mayor) es obligatorio." });
   }
   const errorLecturas = validarLecturas(lecturas);

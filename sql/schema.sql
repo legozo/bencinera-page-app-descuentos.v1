@@ -211,3 +211,9 @@ ALTER TABLE cuadre_lecturas ADD COLUMN IF NOT EXISTS precio_clp_litro NUMERIC(10
 
 CREATE INDEX IF NOT EXISTS idx_cuadre_lecturas_cuadre ON cuadre_lecturas(cuadre_id);
 CREATE INDEX IF NOT EXISTS idx_cuadre_lecturas_maquina ON cuadre_lecturas(maquina_id, combustible_id);
+
+-- Una sola lectura por máquina y combustible dentro de un mismo cuadre: dos filas repetidas
+-- contarían los litros doble. La API ya lo valida (validarLecturas en cuadres.js); esto es
+-- la garantía final a nivel de base de datos.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cuadre_lecturas_unicas
+    ON cuadre_lecturas(cuadre_id, maquina_id, combustible_id);

@@ -92,7 +92,7 @@ function renderizarResultado(data) {
       ${avisoOffline}
       <div class="resultado-no-socio">
         <strong>No es socio registrado.</strong><br>
-        <span class="chico">RUT ${data.rut} no tiene descuentos asociados.</span>
+        <span class="chico">RUT ${escaparHtml(data.rut)} no tiene descuentos asociados.</span>
       </div>`;
     return;
   }
@@ -102,15 +102,15 @@ function renderizarResultado(data) {
     .map((r) => {
       const sinPrecio = r.precio_clp_litro === null || r.precio_clp_litro === undefined;
       const etiquetaPrecio = sinPrecio ? "precio no configurado" : `$${r.precio_clp_litro}/L`;
-      return `<option value="${r.combustible_id}" data-descuento="${r.descuento_clp_litro}" data-precio="${sinPrecio ? "" : r.precio_clp_litro}">${r.combustible} — ${etiquetaPrecio}, descuento $${r.descuento_clp_litro}/L</option>`;
+      return `<option value="${r.combustible_id}" data-descuento="${r.descuento_clp_litro}" data-precio="${sinPrecio ? "" : r.precio_clp_litro}">${escaparHtml(r.combustible)} — ${etiquetaPrecio}, descuento $${r.descuento_clp_litro}/L</option>`;
     })
     .join("");
 
   resultadoDiv.innerHTML = `
     ${avisoOffline}
     <div class="resultado-socio">
-      <strong>${s.nombre} ${s.apellido || ""}</strong><br>
-      <span class="chico">Socio ${s.tipo_socio_nombre} — RUT ${s.rut}-${s.dv}</span>
+      <strong>${escaparHtml(`${s.nombre} ${s.apellido || ""}`)}</strong><br>
+      <span class="chico">Socio ${escaparHtml(s.tipo_socio_nombre)} — RUT ${escaparHtml(s.rut)}-${escaparHtml(s.dv)}</span>
     </div>
     <label for="combustible">Tipo de combustible</label>
     <select id="combustible" onchange="recalcular()">${opciones}</select>

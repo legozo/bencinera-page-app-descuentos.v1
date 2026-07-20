@@ -51,6 +51,9 @@ services:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?falta ADMIN_PASSWORD en .env}
       PORT: 3000
+      # Restringe CORS a este dominio (ver index.js). Si se deja vacío, CORS queda abierto
+      # como antes — no rompe otros entornos (ej. demo) que no definan esta variable.
+      DOMINIO: ${DOMINIO:-}
     ports:
       # Solo en localhost: nadie desde internet llega directo acá, solo el Caddy
       # existente del VPS (que puede alcanzar localhost por correr en modo host).

@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const db = require("./db");
 
 const SECRET = process.env.JWT_SECRET || "cambia-este-secreto";
 
@@ -17,16 +18,25 @@ function generarToken(usuario) {
   );
 }
 
-function requiereAuth(req, res, next) {
+async function requiereAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: "No autenticado." });
+  let payload;
   try {
-    req.usuario = jwt.verify(token, SECRET);
-    next();
+    payload = jwt.verify(token, SECRET);
   } catch (err) {
     return res.status(401).json({ error: "Token inválido o expirado." });
   }
+  // El token dura 12h, pero desactivar (o eliminar) un usuario tiene que cortarle el acceso
+  // de inmediato, no cuando el token expire — por eso se reconsulta su estado en cada
+  // petición en vez de confiar solo en la firma.
+  const { rows } = await db.query("SELECT activo FROM usuarios WHERE id = $1", [payload.id]);
+  if (!rows[0] || !rows[0].activo) {
+    return res.status(401).json({ error: "Tu cuenta fue desactivada. Habla con el administrador." });
+  }
+  req.usuario = payload;
+  next();
 }
 
 function requiereRol(...roles) {

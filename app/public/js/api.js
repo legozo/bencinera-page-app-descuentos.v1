@@ -57,6 +57,22 @@ const Api = {
   delete(ruta) { return this.llamar("DELETE", ruta); },
 };
 
+/**
+ * Escapa un texto para poder insertarlo dentro de HTML armado con template strings, tanto en
+ * el contenido como dentro de atributos con comillas. Aplicar SIEMPRE a cualquier dato de
+ * texto libre que venga de la base (nombres, apellidos, direcciones, descripciones, nombres
+ * de sucursal/máquina/combustible/tipo de socio): si no, un valor guardado con caracteres
+ * especiales de HTML se ejecutaría como código en el navegador de quien lo vea (XSS).
+ */
+function escaparHtml(valor) {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Redirige al login si no hay sesión activa. Llamar al inicio de cada página protegida. */
 function requerirSesion(rolRequerido) {
   const usuario = Api.usuario();

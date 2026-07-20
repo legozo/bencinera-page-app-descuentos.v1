@@ -11,8 +11,8 @@ ENV TZ=America/Santiago
 
 WORKDIR /app
 
-COPY app/package.json ./
-RUN npm install --omit=dev
+COPY app/package.json app/package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY app/src ./src
 COPY app/public ./public

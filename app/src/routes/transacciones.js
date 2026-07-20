@@ -15,7 +15,9 @@ router.use(requiereAuth);
  */
 async function registrarVenta({ sucursalId, usuarioId, rut, combustibleId, litros, timestamp, idLocal, permitirInterno = false }) {
   const litrosNum = Number(litros);
-  if (!combustibleId || !litrosNum || litrosNum <= 0) {
+  // Number.isFinite y no solo "truthy": rechaza también Infinity (ej. litros "1e999"), que
+  // Postgres aceptaría guardar en NUMERIC y envenenaría todas las sumas de reportes/cuadres.
+  if (!combustibleId || !Number.isFinite(litrosNum) || litrosNum <= 0) {
     return { ok: false, status: 400, error: "Combustible y litros (mayor a 0) son obligatorios." };
   }
 
@@ -29,6 +31,23 @@ async function registrarVenta({ sucursalId, usuarioId, rut, combustibleId, litro
   const fecha = timestamp ? new Date(timestamp) : new Date();
   if (Number.isNaN(fecha.getTime())) {
     return { ok: false, status: 400, error: "Fecha/hora inválida." };
+  }
+  // El timestamp lo genera el dispositivo del bombero (venta guardada offline), así que se
+  // acota a un rango razonable: hasta 5 minutos en el futuro (desfase de reloj normal) y
+  // hasta 7 días hacia atrás (un corte de internet no dura más que eso). Sin este límite,
+  // cualquier cuenta de bombero podría inyectar ventas con fecha arbitraria — por ejemplo
+  // dentro de la ventana de un cuadre ya cerrado, cuyo snapshot no se recalcula.
+  if (timestamp) {
+    const desfase = fecha.getTime() - Date.now();
+    const CINCO_MIN_MS = 5 * 60 * 1000;
+    const SIETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000;
+    if (desfase > CINCO_MIN_MS || desfase < -SIETE_DIAS_MS) {
+      return {
+        ok: false,
+        status: 400,
+        error: "La fecha de esta venta guardada offline está fuera del rango aceptado (máximo 7 días hacia atrás). Avisa al administrador para registrarla manualmente.",
+      };
+    }
   }
 
   if (idLocal) {

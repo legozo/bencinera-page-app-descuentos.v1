@@ -45,7 +45,9 @@ router.get("/", async (req, res) => {
 /** Registrar una descarga nueva. */
 router.post("/", async (req, res) => {
   const { sucursal_id, bombero_id, monto } = req.body || {};
-  if (!sucursal_id || !bombero_id || !monto || Number.isNaN(Number(monto)) || Number(monto) <= 0) {
+  // Number.isFinite y no solo isNaN: rechaza también Infinity (ej. monto "1e999"), que
+  // Postgres aceptaría guardar en NUMERIC y envenenaría los totales de efectivo.
+  if (!sucursal_id || !bombero_id || !Number.isFinite(Number(monto)) || Number(monto) <= 0) {
     return res.status(400).json({ error: "Sucursal, bombero y monto (mayor a 0) son obligatorios." });
   }
   try {

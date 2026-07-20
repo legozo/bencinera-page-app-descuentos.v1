@@ -24,6 +24,11 @@ router.post("/", async (req, res) => {
   if (!nombre || !usuario || !password || !rol) {
     return res.status(400).json({ error: "Nombre, usuario, clave y rol son obligatorios." });
   }
+  // Mismo mínimo que exige el modal de "Cambiar clave" en el panel — la API no puede confiar
+  // en que siempre se llegue por ahí.
+  if (password.length < 4) {
+    return res.status(400).json({ error: "La clave debe tener al menos 4 caracteres." });
+  }
   if (!["admin", "bombero"].includes(rol)) {
     return res.status(400).json({ error: "Rol inválido." });
   }
@@ -65,6 +70,14 @@ router.post("/", async (req, res) => {
 /** Editar (activar/desactivar, cambiar clave, cambiar sucursal, completar RUT). */
 router.put("/:id", async (req, res) => {
   const { nombre, apellido, sucursal_id, activo, password, telefono, rut } = req.body || {};
+  // Mismo espíritu que "no puedes eliminar tu propia cuenta" en DELETE: desactivarse a sí
+  // mismo dejaría a un admin sin forma de volver a entrar y reactivarse.
+  if (activo === false && Number(req.params.id) === req.usuario.id) {
+    return res.status(400).json({ error: "No puedes desactivar tu propia cuenta." });
+  }
+  if (password && password.length < 4) {
+    return res.status(400).json({ error: "La clave debe tener al menos 4 caracteres." });
+  }
   let hash = null;
   if (password) hash = await bcrypt.hash(password, 10);
   const nombreNormalizado = nombre ? capitalizarNombre(nombre) : nombre;

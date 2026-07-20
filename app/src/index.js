@@ -19,7 +19,15 @@ const descargasRoutes = require("./routes/descargas");
 const cuadresRoutes = require("./routes/cuadres");
 
 const app = express();
-app.use(cors());
+
+// CORS: restringido al dominio de producción cuando está configurado (DOMINIO en .env). Sin
+// esa variable (ej. entornos de demo/desarrollo que no la definen) queda abierto, igual que
+// antes. Esto no afecta las llamadas normales del propio sitio — son del mismo origen, y el
+// navegador ni siquiera aplica CORS ahí — solo bloquea que OTRA página, desde el navegador de
+// un usuario, llame a esta API en su nombre.
+const dominioProduccion = process.env.DOMINIO;
+const origenesPermitidos = dominioProduccion ? [`https://${dominioProduccion}`, `http://${dominioProduccion}`] : undefined;
+app.use(cors(origenesPermitidos ? { origin: origenesPermitidos } : {}));
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
