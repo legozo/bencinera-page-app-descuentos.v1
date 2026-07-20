@@ -6,6 +6,7 @@ const express = require("express");
 // esto, Express 4 no captura promesas rechazadas en rutas async automáticamente.
 require("express-async-errors");
 const cors = require("cors");
+const helmet = require("helmet");
 const bootstrap = require("./bootstrap");
 
 const authRoutes = require("./routes/auth");
@@ -19,6 +20,32 @@ const descargasRoutes = require("./routes/descargas");
 const cuadresRoutes = require("./routes/cuadres");
 
 const app = express();
+
+// Headers de seguridad (helmet). Se usan los de bajo riesgo que NO rompen nada de esta app:
+// HSTS (fuerza HTTPS), X-Content-Type-Options (nosniff), X-Frame-Options, Referrer-Policy, y
+// oculta X-Powered-By. El CSP se configura a propósito de forma PARCIAL: solo directivas
+// defensivas que la app no usa (no permite incrustarla en un iframe, ni <object>/plugins, ni
+// inyectar un <base>). No se activa el CSP completo de helmet porque bloquearía el `onclick`
+// y el `style` inline que el frontend usa en todas partes (rompería todos los botones); un
+// CSP completo requeriría sacar ese HTML inline primero (ver memoria de pendientes). Al vivir
+// acá (en la app Node, no en el Caddy compartido), estos headers viajan con la app si se
+// migra a otro VPS, sin reconfigurar nada.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        // default-src se desactiva a propósito: sin él, no se restringe de dónde vienen los
+        // scripts/estilos, así el `onclick`/`style` inline del frontend sigue funcionando.
+        // Solo se aplican las 3 directivas defensivas de abajo (que la app no usa igual).
+        "default-src": helmet.contentSecurityPolicy.dangerouslyDisableDefaultSrc,
+        "frame-ancestors": ["'none'"],
+        "object-src": ["'none'"],
+        "base-uri": ["'self'"],
+      },
+    },
+  })
+);
 
 // CORS: restringido al dominio de producción cuando está configurado (DOMINIO en .env). Sin
 // esa variable (ej. entornos de demo/desarrollo que no la definen) queda abierto, igual que
