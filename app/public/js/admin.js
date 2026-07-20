@@ -1374,28 +1374,36 @@ const NOMBRE_TURNO = { manana: "Mañana (20:00 - 08:00)", tarde: "Tarde (08:00 -
 const CLAVE_BORRADOR_CUADRE = "bencinera_cuadre_borrador";
 
 /** Lee del DOM lo tecleado y lo guarda, salvo que el cuadre sea de solo lectura (nada que
- * conservar) o esté completamente vacío (evita dejar un borrador fantasma sin datos). */
+ * conservar) o esté completamente vacío (evita dejar un borrador fantasma sin datos).
+ * Todo el acceso a localStorage va en try/catch: en algunos navegadores de celular (ej.
+ * Safari iOS en navegación privada) setItem lanza una excepción, y sin capturarla rompía en
+ * silencio la cadena del oninput y no se guardaba nada. */
 function guardarBorradorCuadre() {
-  if (!cuadreInfo || (cuadreInfo.existe && !cuadreInfo.editable)) return;
-  const sucursalId = document.getElementById("cuadreSucursal")?.value;
-  const fecha = document.getElementById("cuadreFecha")?.value;
-  const turno = document.getElementById("cuadreTurno")?.value;
-  if (!sucursalId || !fecha || !turno) return;
-  const valores = capturarValoresCuadre();
-  const vacio = Object.keys(valores.lecturas).length === 0 && Object.keys(valores.precios).length === 0 && !valores.tarjeta;
-  if (vacio) {
-    borrarBorradorCuadre();
-    return;
+  try {
+    if (!cuadreInfo || (cuadreInfo.existe && !cuadreInfo.editable)) return;
+    const sucursalId = document.getElementById("cuadreSucursal")?.value;
+    const fecha = document.getElementById("cuadreFecha")?.value;
+    const turno = document.getElementById("cuadreTurno")?.value;
+    if (!sucursalId || !fecha || !turno) return;
+    const valores = capturarValoresCuadre();
+    const vacio = Object.keys(valores.lecturas).length === 0 && Object.keys(valores.precios).length === 0 && !valores.tarjeta;
+    if (vacio) {
+      borrarBorradorCuadre();
+      return;
+    }
+    localStorage.setItem(CLAVE_BORRADOR_CUADRE, JSON.stringify({ sucursalId, fecha, turno, valores }));
+  } catch (err) {
+    // Sin localStorage disponible (modo privado, cuota llena) no se puede conservar el
+    // borrador — no es un error que deba interrumpir el llenado del cuadre.
   }
-  localStorage.setItem(CLAVE_BORRADOR_CUADRE, JSON.stringify({ sucursalId, fecha, turno, valores }));
 }
 
 /** Devuelve el borrador guardado completo (con su sucursal/fecha/turno), o null si no hay
  * ninguno o quedó corrupto. Se usa al abrir la pestaña, para saber a qué turno saltar. */
 function leerBorradorCuadreGuardado() {
-  const raw = localStorage.getItem(CLAVE_BORRADOR_CUADRE);
-  if (!raw) return null;
   try {
+    const raw = localStorage.getItem(CLAVE_BORRADOR_CUADRE);
+    if (!raw) return null;
     return JSON.parse(raw);
   } catch (err) {
     return null;
@@ -1414,8 +1422,23 @@ function leerBorradorCuadre(sucursalId, fecha, turno) {
 }
 
 function borrarBorradorCuadre() {
-  localStorage.removeItem(CLAVE_BORRADOR_CUADRE);
+  try {
+    localStorage.removeItem(CLAVE_BORRADOR_CUADRE);
+  } catch (err) {
+    // ídem guardarBorradorCuadre: si no hay localStorage no hay nada que borrar.
+  }
 }
+
+// Red de seguridad para celulares: además de guardar en cada tecla (oninput), se vuelve a
+// guardar el borrador cuando la página pasa a segundo plano o está por descartarse. En el
+// teléfono es común que el sistema congele o cierre la pestaña al cambiar de app, bloquear
+// la pantalla o volver al inicio, y estos eventos disparan de forma mucho más confiable que
+// esperar un último oninput. guardarBorradorCuadre ya no hace nada si no se está en un cuadre
+// editable, así que es seguro llamarlo siempre.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") guardarBorradorCuadre();
+});
+window.addEventListener("pagehide", guardarBorradorCuadre);
 
 /** El último turno de 12h que ya terminó a esta hora — sugerencia inicial para no tener que
  * pensar cuál es, aunque se puede elegir cualquier otra fecha/turno igual. */
@@ -1643,7 +1666,7 @@ function renderFormularioCuadre(valoresPrevios) {
     <div class="tarjeta">
       <h3>Resumen del turno</h3>
       <div class="grid-2" style="margin-bottom:10px;">
-        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Litros × precio</div><div id="statLitrosPrecio" style="font-size:17px; font-weight:600;">$0</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Precio × litro</div><div id="statLitrosPrecio" style="font-size:17px; font-weight:600;">$0</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo (descargas)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.efectivo_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos (app)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.descuentos_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
