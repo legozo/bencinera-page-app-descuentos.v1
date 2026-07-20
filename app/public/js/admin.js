@@ -36,20 +36,40 @@ function cambiarSeccion(seccion) {
 }
 
 function fmt(n) { return Number(n || 0).toLocaleString("es-CL"); }
+
+/**
+ * Limpia en vivo un <input type="text" inputmode="decimal"> para que solo queden dígitos y
+ * un único punto decimal (y convierte una coma a punto, por si el teclado del celular la
+ * insertó). Se usa en vez de <input type="number"> para las lecturas de entrada/salida del
+ * Cuadre de caja: en varios teclados/navegadores de Android, type="number" con decimales
+ * dejaba el valor que lee JavaScript desincronizado del que se ve en pantalla — el admin
+ * tecleaba una salida ya mayor a la entrada, pero seguía apareciendo el error de "la salida
+ * no puede ser menor a la entrada" porque el valor real leído no era el que se veía tecleado.
+ */
+function sanearNumero(input) {
+  let valor = input.value.replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  const primerPunto = valor.indexOf(".");
+  if (primerPunto !== -1) {
+    valor = valor.slice(0, primerPunto + 1) + valor.slice(primerPunto + 1).replace(/\./g, "");
+  }
+  if (valor !== input.value) input.value = valor;
+}
 // Diferencia = litros×precio - (efectivo+tarjeta+descuentos). Positiva = el combustible
 // vendido vale más que lo recibido -> falta plata (alarma, rojo). Negativa = sobró plata
 // respecto al combustible vendido -> no es una falta real (verde).
 function colorDiferencia(v) { return v > 0 ? "var(--rojo)" : "var(--verde)"; }
 
-/** Muestra un modal propio de sí/no (reemplaza confirm() nativo). Devuelve una Promise<boolean>. */
+/** Muestra un modal propio de sí/no (reemplaza confirm() nativo). Devuelve una Promise<boolean>.
+ * El mensaje y el título se tratan como texto plano (se escapan): varios llamados interpolan
+ * nombres guardados en la base, que no deben poder inyectar HTML. */
 function confirmarAccion(mensaje, titulo = "Confirmar acción") {
   return new Promise((resolve) => {
     const cont = document.getElementById("modalContenedor");
     cont.innerHTML = `
       <div class="overlay-modal">
         <div class="modal">
-          <h3>${titulo}</h3>
-          <p>${mensaje}</p>
+          <h3>${escaparHtml(titulo)}</h3>
+          <p>${escaparHtml(mensaje)}</p>
           <div class="modal-botones">
             <button class="secundario" id="modalCancelar">Cancelar</button>
             <button class="primario" id="modalAceptar">Confirmar</button>
@@ -62,15 +82,16 @@ function confirmarAccion(mensaje, titulo = "Confirmar acción") {
   });
 }
 
-/** Muestra un modal propio de aviso con un solo botón (reemplaza alert() nativo). */
+/** Muestra un modal propio de aviso con un solo botón (reemplaza alert() nativo). Mensaje y
+ * título se escapan igual que en confirmarAccion (pueden traer nombres/descripciones de la base). */
 function avisar(mensaje, titulo = "Aviso") {
   return new Promise((resolve) => {
     const cont = document.getElementById("modalContenedor");
     cont.innerHTML = `
       <div class="overlay-modal">
         <div class="modal">
-          <h3>${titulo}</h3>
-          <p>${mensaje}</p>
+          <h3>${escaparHtml(titulo)}</h3>
+          <p>${escaparHtml(mensaje)}</p>
           <div class="modal-botones">
             <button class="primario" id="modalOk">Aceptar</button>
           </div>
@@ -93,9 +114,9 @@ function pedirTexto(mensaje, titulo = "Ingresa un valor", opciones = {}) {
     cont.innerHTML = `
       <div class="overlay-modal">
         <div class="modal">
-          <h3>${titulo}</h3>
-          <p style="margin-bottom:10px;">${mensaje}</p>
-          <input id="modalInputTexto" type="${tipo}" value="${(opciones.valorInicial || "").replace(/"/g, "&quot;")}" autofocus>
+          <h3>${escaparHtml(titulo)}</h3>
+          <p style="margin-bottom:10px;">${escaparHtml(mensaje)}</p>
+          <input id="modalInputTexto" type="${tipo}" value="${escaparHtml(opciones.valorInicial || "")}" autofocus>
           <div id="modalInputError" class="mensaje-error oculto" style="margin-top:10px;"></div>
           <div class="modal-botones">
             <button class="secundario" id="modalCancelar">Cancelar</button>
@@ -142,7 +163,7 @@ async function cargarReportes() {
   const cont = document.getElementById("tab-reportes");
   await cargarCatalogos();
   const hoy = fechaLocalISO(new Date());
-  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
@@ -273,15 +294,15 @@ async function buscarReportes() {
   const litrosCombustible = litrosPorCombustible(data.detalle);
   const descuentoCombustible = descuentoPorCombustible(data.detalle);
   const litrosCombustibleHtml = litrosCombustible.length
-    ? `<div class="grid-2">${litrosCombustible.map(([c, l]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">${fmt(l)} L</div></div>`).join("")}</div>`
+    ? `<div class="grid-2">${litrosCombustible.map(([c, l]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${escaparHtml(c)}</div><div style="font-size:17px; font-weight:600;">${fmt(l)} L</div></div>`).join("")}</div>`
     : `<p class="chico">Sin datos</p>`;
   const descuentoCombustibleHtml = descuentoCombustible.length
-    ? `<div class="grid-2">${descuentoCombustible.map(([c, d]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">$${fmt(d)}</div></div>`).join("")}</div>`
+    ? `<div class="grid-2">${descuentoCombustible.map(([c, d]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${escaparHtml(c)}</div><div style="font-size:17px; font-weight:600;">$${fmt(d)}</div></div>`).join("")}</div>`
     : `<p class="chico">Sin datos</p>`;
 
   cont.innerHTML = `
     <div class="tarjeta">
-      <p class="chico">${rangoTexto} · Sucursal: ${sucursalTexto}</p>
+      <p class="chico">${rangoTexto} · Sucursal: ${escaparHtml(sucursalTexto)}</p>
       <h3>Totales</h3>
       <div class="grid-2" style="margin-top:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Transacciones</div><div style="font-size:17px; font-weight:600;">${fmt(data.totales.transacciones)}</div></div>
@@ -301,8 +322,8 @@ async function buscarReportes() {
         <tr><th>Sucursal</th><th>Combustible</th><th>Litros</th><th>Descuento</th><th>Total cobrado</th></tr>
         ${grupos.map((g) => {
           const sub = subtotalGrupo(g.filas);
-          const filasHtml = g.filas.map((r) => `<tr><td>${r.sucursal}</td><td>${r.combustible}</td><td>${fmt(r.litros)}</td><td>$${fmt(r.descuento_total)}</td><td>$${fmt(r.monto_total)}</td></tr>`).join("");
-          const subtotalHtml = `<tr style="font-weight:600; background:#f4f5f7;"><td colspan="2">Subtotal ${g.sucursal}</td><td>${fmt(sub.litros)}</td><td>$${fmt(sub.descuento_total)}</td><td>$${fmt(sub.monto_total)}</td></tr>`;
+          const filasHtml = g.filas.map((r) => `<tr><td>${escaparHtml(r.sucursal)}</td><td>${escaparHtml(r.combustible)}</td><td>${fmt(r.litros)}</td><td>$${fmt(r.descuento_total)}</td><td>$${fmt(r.monto_total)}</td></tr>`).join("");
+          const subtotalHtml = `<tr style="font-weight:600; background:#f4f5f7;"><td colspan="2">Subtotal ${escaparHtml(g.sucursal)}</td><td>${fmt(sub.litros)}</td><td>$${fmt(sub.descuento_total)}</td><td>$${fmt(sub.monto_total)}</td></tr>`;
           return filasHtml + subtotalHtml;
         }).join("") || '<tr><td colspan="5">Sin datos</td></tr>'}
       </table>
@@ -384,8 +405,8 @@ async function cargarHistorial() {
   await cargarCatalogos();
   usuariosCacheHistorial = await Api.get("/usuarios");
   preciosCacheTraspaso = await Api.get("/catalogos/precios");
-  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
-  const opcionesBombero = usuariosCacheHistorial.map((u) => `<option value="${u.id}">${u.nombre} ${u.apellido || ""}</option>`).join("");
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
+  const opcionesBombero = usuariosCacheHistorial.map((u) => `<option value="${u.id}">${escaparHtml(`${u.nombre} ${u.apellido || ""}`)}</option>`).join("");
   const primeraSucursal = catalogos.sucursales[0] ? catalogos.sucursales[0].id : null;
   const opcionesCombustibleTraspaso = opcionesCombustibleConPrecio(primeraSucursal);
   cont.innerHTML = `
@@ -428,7 +449,7 @@ function opcionesCombustibleConPrecio(sucursalId) {
   return catalogos.combustibles.map((c) => {
     const precio = preciosCacheTraspaso.find((p) => p.combustible_id === c.id && p.sucursal_id === Number(sucursalId));
     const etiquetaPrecio = precio ? `$${fmt(precio.precio_clp_litro)}/L` : "sin precio configurado";
-    return `<option value="${c.id}">${c.nombre} — ${etiquetaPrecio}</option>`;
+    return `<option value="${c.id}">${escaparHtml(c.nombre)} — ${etiquetaPrecio}</option>`;
   }).join("");
 }
 
@@ -524,11 +545,11 @@ async function buscarHistorial(pagina = 1) {
         <tr>
           <td data-etiqueta="Fecha">${fechaHora.toLocaleDateString("es-CL")}</td>
           <td data-etiqueta="Hora">${fechaHora.toLocaleTimeString("es-CL")}</td>
-          <td data-etiqueta="Sucursal">${t.sucursal_nombre}</td>
-          <td data-etiqueta="Bombero">${t.bombero_nombre} ${t.bombero_apellido || ""}</td>
-          <td data-etiqueta="RUT">${rutMostrado}</td>
-          <td data-etiqueta="Nombre socio">${t.socio_nombre ? `${t.socio_nombre} ${t.socio_apellido || ""}` : "(no socio)"}</td>
-          <td data-etiqueta="Combustible">${t.combustible_nombre}</td>
+          <td data-etiqueta="Sucursal">${escaparHtml(t.sucursal_nombre)}</td>
+          <td data-etiqueta="Bombero">${escaparHtml(`${t.bombero_nombre} ${t.bombero_apellido || ""}`)}</td>
+          <td data-etiqueta="RUT">${escaparHtml(rutMostrado)}</td>
+          <td data-etiqueta="Nombre socio">${t.socio_nombre ? escaparHtml(`${t.socio_nombre} ${t.socio_apellido || ""}`) : "(no socio)"}</td>
+          <td data-etiqueta="Combustible">${escaparHtml(t.combustible_nombre)}</td>
           <td data-etiqueta="Litros">${fmt(t.litros)}</td>
           <td data-etiqueta="Precio/L">$${fmt(t.precio_litro_clp)}</td>
           <td data-etiqueta="Descuento">$${fmt(t.descuento_total_clp)}</td>
@@ -660,7 +681,7 @@ async function cargarSocios() {
   const cont = document.getElementById("tab-socios");
   await cargarCatalogos();
   const opcionesTipo = catalogos.tiposSocio
-    .map((t) => `<option value="${t.id}" data-descripcion="${(t.descripcion || "").replace(/"/g, "&quot;")}">${t.nombre}</option>`)
+    .map((t) => `<option value="${t.id}" data-descripcion="${escaparHtml(t.descripcion || "")}">${escaparHtml(t.nombre)}</option>`)
     .join("");
   cont.innerHTML = `
     <div class="tarjeta">
@@ -750,16 +771,16 @@ async function buscarSociosLista() {
       <tr><th>RUT</th><th>Nombre</th><th>Teléfono</th><th>Dirección</th><th>Tipo</th><th>Activo</th><th>Registro</th><th></th><th></th><th></th></tr>
       ${rows.map((s) => `
         <tr>
-          <td data-etiqueta="RUT">${s.rut}-${s.dv}</td>
-          <td data-etiqueta="Nombre">${s.nombre} ${s.apellido || ""}</td>
-          <td data-etiqueta="Teléfono">${s.telefono || "-"}</td>
-          <td data-etiqueta="Dirección">${s.direccion || "-"}</td>
-          <td data-etiqueta="Tipo">${s.tipo_socio_nombre}</td>
+          <td data-etiqueta="RUT">${escaparHtml(s.rut)}-${escaparHtml(s.dv)}</td>
+          <td data-etiqueta="Nombre">${escaparHtml(`${s.nombre} ${s.apellido || ""}`)}</td>
+          <td data-etiqueta="Teléfono">${escaparHtml(s.telefono || "-")}</td>
+          <td data-etiqueta="Dirección">${escaparHtml(s.direccion || "-")}</td>
+          <td data-etiqueta="Tipo">${escaparHtml(s.tipo_socio_nombre)}</td>
           <td data-etiqueta="Activo">${s.activo ? "Sí" : "No"}</td>
           <td data-etiqueta="Registro">${new Date(s.fecha_registro).toLocaleDateString("es-CL")}</td>
           <td><button class="secundario" onclick="editarSocio(${s.id})">Editar</button></td>
           <td><button class="secundario" onclick="toggleActivoSocio(${s.id}, ${!s.activo})">${s.activo ? "Desactivar" : "Activar"}</button></td>
-          <td><button class="secundario" style="color:#c0392b; border-color:#c0392b;" onclick="eliminarSocio(${s.id}, '${(s.nombre + " " + (s.apellido || "")).replace(/'/g, "\\'").trim()}')">Eliminar</button></td>
+          <td><button class="secundario" style="color:#c0392b; border-color:#c0392b;" onclick="eliminarSocio(${s.id})">Eliminar</button></td>
         </tr>`).join("") || '<tr><td colspan="10">Sin resultados</td></tr>'}
     </table>`;
 }
@@ -794,7 +815,11 @@ async function toggleActivoSocio(id, nuevoEstado) {
   buscarSociosLista();
 }
 
-async function eliminarSocio(id, nombre) {
+/** El nombre se busca por id en la lista ya cargada, en vez de viajar interpolado dentro del
+ * atributo onclick del botón (donde un nombre con comillas rompía el HTML). */
+async function eliminarSocio(id) {
+  const s = ultimosSocios.find((x) => x.id === id);
+  const nombre = s ? `${s.nombre} ${s.apellido || ""}`.trim() : "este socio";
   const confirmado = await confirmarAccion(`¿Eliminar definitivamente a ${nombre}? Esta acción no se puede deshacer.`, "Eliminar socio");
   if (!confirmado) return;
   try {
@@ -812,7 +837,7 @@ let usuarioEditandoId = null; // id del usuario en edición, o null si el formul
 async function cargarBomberos() {
   const cont = document.getElementById("tab-bomberos");
   await cargarCatalogos();
-  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <button class="secundario" onclick="toggleFormUsuario()">+ Agregar usuario</button>
@@ -903,24 +928,27 @@ async function listarUsuarios() {
       <tr><th>Nombre</th><th>Usuario</th><th>RUT</th><th>Teléfono</th><th>Rol</th><th>Sucursal</th><th>Activo</th><th>Creado</th><th></th><th></th><th></th><th></th></tr>
       ${rows.map((u) => `
         <tr>
-          <td data-etiqueta="Nombre">${u.nombre} ${u.apellido || ""}</td>
-          <td data-etiqueta="Usuario">${u.usuario}</td>
-          <td data-etiqueta="RUT">${u.rut ? `${u.rut}-${u.dv}` : "-"}</td>
-          <td data-etiqueta="Teléfono">${u.telefono || "-"}</td>
-          <td data-etiqueta="Rol">${u.rol}</td>
-          <td data-etiqueta="Sucursal">${u.sucursal_nombre || "-"}</td>
+          <td data-etiqueta="Nombre">${escaparHtml(`${u.nombre} ${u.apellido || ""}`)}</td>
+          <td data-etiqueta="Usuario">${escaparHtml(u.usuario)}</td>
+          <td data-etiqueta="RUT">${u.rut ? escaparHtml(`${u.rut}-${u.dv}`) : "-"}</td>
+          <td data-etiqueta="Teléfono">${escaparHtml(u.telefono || "-")}</td>
+          <td data-etiqueta="Rol">${escaparHtml(u.rol)}</td>
+          <td data-etiqueta="Sucursal">${escaparHtml(u.sucursal_nombre || "-")}</td>
           <td data-etiqueta="Activo">${u.activo ? "Sí" : "No"}</td>
           <td data-etiqueta="Creado">${new Date(u.creado_en).toLocaleDateString("es-CL")}</td>
           <td><button class="secundario" onclick="editarUsuario(${u.id})">Editar</button></td>
-          <td><button class="secundario" onclick="cambiarClaveUsuario(${u.id}, '${(u.nombre + " " + (u.apellido || "")).replace(/'/g, "\\'").trim()}')">Cambiar clave</button></td>
+          <td><button class="secundario" onclick="cambiarClaveUsuario(${u.id})">Cambiar clave</button></td>
           <td><button class="secundario" onclick="toggleActivoUsuario(${u.id}, ${!u.activo})">${u.activo ? "Desactivar" : "Activar"}</button></td>
-          <td><button class="secundario" style="color:#c0392b; border-color:#c0392b;" onclick="eliminarUsuario(${u.id}, '${(u.nombre + " " + (u.apellido || "")).replace(/'/g, "\\'").trim()}')">Eliminar</button></td>
+          <td><button class="secundario" style="color:#c0392b; border-color:#c0392b;" onclick="eliminarUsuario(${u.id})">Eliminar</button></td>
         </tr>`).join("")}
     </table>`;
 }
 
-/** Pide una clave nueva (con confirmación de mínimo 4 caracteres) y la guarda para ese usuario. */
-async function cambiarClaveUsuario(id, nombre) {
+/** Pide una clave nueva (con confirmación de mínimo 4 caracteres) y la guarda para ese usuario.
+ * El nombre se busca por id (no viaja por el onclick, donde un nombre con comillas rompía el HTML). */
+async function cambiarClaveUsuario(id) {
+  const u = ultimosUsuarios.find((x) => x.id === id);
+  const nombre = u ? `${u.nombre} ${u.apellido || ""}`.trim() : "este usuario";
   const nuevaClave = await pedirTexto(`Nueva clave para ${nombre}:`, "Cambiar clave", { password: true, minLength: 4 });
   if (nuevaClave === null) return; // canceló
   try {
@@ -967,7 +995,9 @@ async function toggleActivoUsuario(id, nuevoEstado) {
   listarUsuarios();
 }
 
-async function eliminarUsuario(id, nombre) {
+async function eliminarUsuario(id) {
+  const u = ultimosUsuarios.find((x) => x.id === id);
+  const nombre = u ? `${u.nombre} ${u.apellido || ""}`.trim() : "este usuario";
   const confirmado = await confirmarAccion(`¿Eliminar definitivamente a ${nombre}? Esta acción no se puede deshacer.`, "Eliminar usuario");
   if (!confirmado) return;
   try {
@@ -1058,7 +1088,7 @@ async function refrescarMatrizReglas() {
   const indice = {};
   rows.forEach((r) => { indice[`${r.tipo_socio_id}-${r.combustible_id}`] = r; });
 
-  const encabezados = catalogos.combustibles.map((c) => `<th>${c.nombre}</th>`).join("");
+  const encabezados = catalogos.combustibles.map((c) => `<th>${escaparHtml(c.nombre)}</th>`).join("");
   const filas = catalogos.tiposSocio.map((t) => {
     const celdas = catalogos.combustibles.map((c) => {
       const r = indice[`${t.id}-${c.id}`];
@@ -1070,7 +1100,7 @@ async function refrescarMatrizReglas() {
         </div>
       </td>`;
     }).join("");
-    return `<tr><td style="font-weight:600;">${t.nombre} <span style="color:var(--dorado); cursor:pointer; margin-left:4px;" onclick="verDescripcionTipoSocio(${t.id})" title="Ver descripción">ⓘ</span> <span style="color:var(--dorado); cursor:pointer; margin-left:2px;" onclick="editarNombreTipoSocio(${t.id})" title="Editar nombre">✏️</span> <span style="color:var(--rojo); cursor:pointer; margin-left:2px;" onclick="eliminarTipoSocio(${t.id})" title="Eliminar">🗑️</span></td>${celdas}</tr>`;
+    return `<tr><td style="font-weight:600;">${escaparHtml(t.nombre)} <span style="color:var(--dorado); cursor:pointer; margin-left:4px;" onclick="verDescripcionTipoSocio(${t.id})" title="Ver descripción">ⓘ</span> <span style="color:var(--dorado); cursor:pointer; margin-left:2px;" onclick="editarNombreTipoSocio(${t.id})" title="Editar nombre">✏️</span> <span style="color:var(--rojo); cursor:pointer; margin-left:2px;" onclick="eliminarTipoSocio(${t.id})" title="Eliminar">🗑️</span></td>${celdas}</tr>`;
   }).join("");
 
   document.getElementById("matrizReglas").innerHTML = `
@@ -1237,7 +1267,7 @@ async function refrescarMatrizPrecios() {
   const indice = {};
   rows.forEach((p) => { indice[`${p.combustible_id}-${p.sucursal_id}`] = p; });
 
-  const encabezados = catalogos.sucursales.map((s) => `<th>${s.nombre} <span style="color:var(--dorado); cursor:pointer; font-weight:normal;" onclick="editarNombreSucursal(${s.id})" title="Editar nombre">✏️</span> <span style="color:var(--rojo); cursor:pointer; font-weight:normal;" onclick="eliminarSucursal(${s.id})" title="Eliminar">🗑️</span></th>`).join("");
+  const encabezados = catalogos.sucursales.map((s) => `<th>${escaparHtml(s.nombre)} <span style="color:var(--dorado); cursor:pointer; font-weight:normal;" onclick="editarNombreSucursal(${s.id})" title="Editar nombre">✏️</span> <span style="color:var(--rojo); cursor:pointer; font-weight:normal;" onclick="eliminarSucursal(${s.id})" title="Eliminar">🗑️</span></th>`).join("");
   const filas = catalogos.combustibles.map((c) => {
     const celdas = catalogos.sucursales.map((s) => {
       const p = indice[`${c.id}-${s.id}`];
@@ -1249,7 +1279,7 @@ async function refrescarMatrizPrecios() {
       }
       const pie = p
         ? `<div class="chico" style="margin-top:2px;">${tendencia}act. ${new Date(p.vigente_desde).toLocaleDateString("es-CL")}
-             · <a style="color:var(--dorado); cursor:pointer;" onclick="verHistorialPrecio(${s.id}, ${c.id}, '${s.nombre.replace(/'/g, "\\'")}', '${c.nombre.replace(/'/g, "\\'")}')">Ver historial</a></div>`
+             · <a style="color:var(--dorado); cursor:pointer;" onclick="verHistorialPrecio(${s.id}, ${c.id})">Ver historial</a></div>`
         : `<div class="chico" style="margin-top:2px;">Sin precio</div>`;
       return `<td>
         <div style="display:flex; gap:6px; align-items:center;">
@@ -1259,7 +1289,7 @@ async function refrescarMatrizPrecios() {
         ${pie}
       </td>`;
     }).join("");
-    return `<tr><td style="font-weight:600;">${c.nombre}</td>${celdas}</tr>`;
+    return `<tr><td style="font-weight:600;">${escaparHtml(c.nombre)}</td>${celdas}</tr>`;
   }).join("");
 
   document.getElementById("matrizPrecios").innerHTML = `
@@ -1269,15 +1299,19 @@ async function refrescarMatrizPrecios() {
     </table>`;
 }
 
-/** Muestra en un modal el historial de precios (últimos 25 cambios) de una combinación sucursal + combustible. */
-async function verHistorialPrecio(sucursalId, combustibleId, sucursalNombre, combustibleNombre) {
+/** Muestra en un modal el historial de precios (últimos 25 cambios) de una combinación
+ * sucursal + combustible. Los nombres se buscan por id en los catálogos ya cargados, en vez
+ * de viajar interpolados por el onclick (donde una comilla en el nombre rompía el HTML). */
+async function verHistorialPrecio(sucursalId, combustibleId) {
+  const sucursal = catalogos.sucursales.find((s) => s.id === sucursalId);
+  const combustible = catalogos.combustibles.find((c) => c.id === combustibleId);
   const rows = await Api.get(`/catalogos/precios/historial?sucursal_id=${sucursalId}&combustible_id=${combustibleId}`);
   const cont = document.getElementById("modalContenedor");
   cont.innerHTML = `
     <div class="overlay-modal">
       <div class="modal" style="max-width:460px; max-height:80vh; display:flex; flex-direction:column;">
         <h3 style="flex-shrink:0;">Historial de precios</h3>
-        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${combustibleNombre} · ${sucursalNombre} · muestra los últimos ${rows.length === 25 ? "25" : rows.length} cambios</p>
+        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${escaparHtml(combustible ? combustible.nombre : "?")} · ${escaparHtml(sucursal ? sucursal.nombre : "?")} · muestra los últimos ${rows.length === 25 ? "25" : rows.length} cambios</p>
         <div style="overflow:auto; max-width:100%; flex:1; min-height:0;">
           <table style="min-width:0; width:100%;">
             <tr><th>Fecha</th><th>Precio</th><th>Cambiado por</th></tr>
@@ -1285,7 +1319,7 @@ async function verHistorialPrecio(sucursalId, combustibleId, sucursalNombre, com
               <tr>
                 <td>${new Date(r.vigente_desde).toLocaleDateString("es-CL")}</td>
                 <td>$${fmt(r.precio_clp_litro)}</td>
-                <td>${r.creado_por_nombre ? `${r.creado_por_nombre} ${r.creado_por_apellido || ""}`.trim() : "-"}</td>
+                <td>${r.creado_por_nombre ? escaparHtml(`${r.creado_por_nombre} ${r.creado_por_apellido || ""}`.trim()) : "-"}</td>
               </tr>`).join("") || '<tr><td colspan="3">Sin historial</td></tr>'}
           </table>
         </div>
@@ -1330,6 +1364,59 @@ let cuadrePendienteToken = 0; // descarta respuestas viejas si el admin cambia s
 
 const NOMBRE_TURNO = { manana: "Mañana (20:00 - 08:00)", tarde: "Tarde (08:00 - 20:00)" };
 
+// ---------- Borrador de Cuadre de caja (localStorage) ----------
+// Guarda en el navegador (no en el servidor) lo que el admin va tecleando en un cuadre
+// todavía no cerrado, para que sobreviva a un F5 o a cerrar y volver a abrir la pestaña —
+// no solo a cambiar de pestaña dentro de la misma carga de página (eso ya sobrevivía solo,
+// porque el <div> de la pestaña no se destruye, solo se oculta). Solo guarda UN borrador a
+// la vez (el del turno que se esté editando); cambiar a otro sucursal/fecha/turno sin haber
+// cerrado el anterior simplemente lo reemplaza.
+const CLAVE_BORRADOR_CUADRE = "bencinera_cuadre_borrador";
+
+/** Lee del DOM lo tecleado y lo guarda, salvo que el cuadre sea de solo lectura (nada que
+ * conservar) o esté completamente vacío (evita dejar un borrador fantasma sin datos). */
+function guardarBorradorCuadre() {
+  if (!cuadreInfo || (cuadreInfo.existe && !cuadreInfo.editable)) return;
+  const sucursalId = document.getElementById("cuadreSucursal")?.value;
+  const fecha = document.getElementById("cuadreFecha")?.value;
+  const turno = document.getElementById("cuadreTurno")?.value;
+  if (!sucursalId || !fecha || !turno) return;
+  const valores = capturarValoresCuadre();
+  const vacio = Object.keys(valores.lecturas).length === 0 && Object.keys(valores.precios).length === 0 && !valores.tarjeta;
+  if (vacio) {
+    borrarBorradorCuadre();
+    return;
+  }
+  localStorage.setItem(CLAVE_BORRADOR_CUADRE, JSON.stringify({ sucursalId, fecha, turno, valores }));
+}
+
+/** Devuelve el borrador guardado completo (con su sucursal/fecha/turno), o null si no hay
+ * ninguno o quedó corrupto. Se usa al abrir la pestaña, para saber a qué turno saltar. */
+function leerBorradorCuadreGuardado() {
+  const raw = localStorage.getItem(CLAVE_BORRADOR_CUADRE);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+/** Devuelve los valores del borrador SOLO si coincide con el sucursal/fecha/turno que se
+ * está por mostrar (si el admin cambió a otro turno distinto, no tiene sentido aplicarlo). */
+function leerBorradorCuadre(sucursalId, fecha, turno) {
+  const borrador = leerBorradorCuadreGuardado();
+  if (!borrador) return null;
+  if (String(borrador.sucursalId) === String(sucursalId) && borrador.fecha === fecha && borrador.turno === turno) {
+    return borrador.valores;
+  }
+  return null;
+}
+
+function borrarBorradorCuadre() {
+  localStorage.removeItem(CLAVE_BORRADOR_CUADRE);
+}
+
 /** El último turno de 12h que ya terminó a esta hora — sugerencia inicial para no tener que
  * pensar cuál es, aunque se puede elegir cualquier otra fecha/turno igual. */
 function sugerenciaTurnoCuadre() {
@@ -1345,8 +1432,13 @@ function sugerenciaTurnoCuadre() {
 async function cargarCuadreCaja() {
   const cont = document.getElementById("tab-cuadre-caja");
   await cargarCatalogos();
-  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
-  const sugerencia = sugerenciaTurnoCuadre();
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
+  // Si hay un borrador guardado (cuadre sin cerrar, tecleado antes de un F5 o de salir de la
+  // pestaña), se abre directo en ESE sucursal/fecha/turno en vez de en la sugerencia de "el
+  // último turno que ya terminó" — si no, el borrador nunca se llegaría a aplicar porque
+  // cargarTurnoCuadre() solo lo restaura cuando coincide con lo seleccionado.
+  const borrador = leerBorradorCuadreGuardado();
+  const sugerencia = borrador ? { fecha: borrador.fecha, turno: borrador.turno } : sugerenciaTurnoCuadre();
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
@@ -1363,6 +1455,9 @@ async function cargarCuadreCaja() {
       </div>
     </div>
     <div id="cuadreContenido">${skeletonLineas(6)}</div>`;
+  if (borrador && catalogos.sucursales.some((s) => String(s.id) === String(borrador.sucursalId))) {
+    document.getElementById("cuadreSucursal").value = borrador.sucursalId;
+  }
   await cargarTurnoCuadre();
 }
 
@@ -1390,15 +1485,18 @@ function capturarValoresCuadre() {
  * Carga el estado del turno elegido (sucursal + fecha + turno): si ya existe un cuadre lo
  * trae para editar (si es el más reciente de la sucursal) o solo consulta (si no); si no
  * existe, arma el formulario de creación. preservar=true mantiene lo que el admin ya tecleó
- * (usado al crear/editar/eliminar una máquina desde este mismo formulario). Usa un token
- * para descartar la respuesta si llega una petición más nueva antes.
+ * EN ESTA MISMA carga de página (usado al crear/editar/eliminar una máquina desde este mismo
+ * formulario); si no viene ese flag, se intenta restaurar en su lugar el borrador guardado en
+ * el navegador (ver leerBorradorCuadre) — así se recupera lo tecleado también después de un
+ * F5 o de haber cerrado y vuelto a abrir la pestaña, no solo dentro de la misma carga. Usa un
+ * token para descartar la respuesta si llega una petición más nueva antes.
  */
 async function cargarTurnoCuadre(preservar) {
   const miToken = ++cuadrePendienteToken;
-  const valoresPrevios = preservar ? capturarValoresCuadre() : null;
   const sucursalId = document.getElementById("cuadreSucursal").value;
   const fecha = document.getElementById("cuadreFecha").value;
   const turno = document.getElementById("cuadreTurno").value;
+  const valoresPrevios = preservar ? capturarValoresCuadre() : leerBorradorCuadre(sucursalId, fecha, turno);
   const cont = document.getElementById("cuadreContenido");
   cont.innerHTML = skeletonLineas(6);
 
@@ -1410,7 +1508,7 @@ async function cargarTurnoCuadre(preservar) {
     ]);
   } catch (err) {
     if (miToken !== cuadrePendienteToken) return;
-    cont.innerHTML = `<div class="tarjeta"><p class="mensaje-error" style="margin-top:0;">${err.message}</p></div>`;
+    cont.innerHTML = `<div class="tarjeta"><p class="mensaje-error" style="margin-top:0;">${escaparHtml(err.message)}</p></div>`;
     return;
   }
   if (miToken !== cuadrePendienteToken) return; // llegó una petición más nueva antes que esta, se descarta
@@ -1441,7 +1539,7 @@ function renderListaMaquinas() {
       <tr><th>Máquina</th><th>Activa</th><th></th><th></th><th></th></tr>
       ${maquinasCacheCuadre.map((m) => `
         <tr>
-          <td>${m.nombre}</td>
+          <td>${escaparHtml(m.nombre)}</td>
           <td>${m.activa ? "Sí" : "No"}</td>
           <td><span style="color:var(--dorado); cursor:pointer;" onclick="editarNombreMaquina(${m.id})" title="Editar nombre">✏️</span></td>
           <td><button class="secundario" onclick="toggleActivaMaquina(${m.id}, ${!m.activa})">${m.activa ? "Desactivar" : "Activar"}</button></td>
@@ -1469,10 +1567,10 @@ function renderFormularioCuadre(valoresPrevios) {
     const clasesFila = [nuevaMaquina && "nueva-maquina", inicioGrupo && "grupo-inicio", finGrupo && "grupo-fin"].filter(Boolean).join(" ");
     return `
     <tr id="filaDatos-${i}" class="${clasesFila}" data-fin-grupo="${finGrupo}">
-      <td data-etiqueta="Máquina">${l.maquina_nombre}</td>
-      <td data-etiqueta="Combustible">${l.combustible_nombre}</td>
-      <td data-etiqueta="Entrada"><input type="number" step="0.1" min="0" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
-      <td data-etiqueta="Salida"><input type="number" step="0.1" min="0" id="salida-${i}" value="${valorSalida}" oninput="recalcularCuadre()" style="width:160px; font-size:18px;" ${disabled}></td>
+      <td data-etiqueta="Máquina">${escaparHtml(l.maquina_nombre)}</td>
+      <td data-etiqueta="Combustible">${escaparHtml(l.combustible_nombre)}</td>
+      <td data-etiqueta="Entrada"><input type="text" inputmode="decimal" autocomplete="off" id="entrada-${i}" value="${valorEntrada}" placeholder="${l.lectura_entrada === null && !guardado ? "sin dato previo" : ""}" oninput="sanearNumero(this); recalcularCuadre(); guardarBorradorCuadre();" style="width:160px; font-size:18px;" ${disabled}></td>
+      <td data-etiqueta="Salida"><input type="text" inputmode="decimal" autocomplete="off" id="salida-${i}" value="${valorSalida}" oninput="sanearNumero(this); recalcularCuadre(); guardarBorradorCuadre();" style="width:160px; font-size:18px;" ${disabled}></td>
       <td data-etiqueta="Litros" id="litros-${i}">-</td>
       <td data-etiqueta="Monto" id="monto-${i}">-</td>
     </tr>
@@ -1484,7 +1582,7 @@ function renderFormularioCuadre(valoresPrevios) {
   let avisoEstado = "";
   if (cuadreInfo.existe) {
     const c = cuadreInfo.cuadre;
-    const cerradoPor = `${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}`.trim();
+    const cerradoPor = escaparHtml(`${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}`.trim());
     let texto = `Cerrado por ${cerradoPor} el ${new Date(c.creado_en).toLocaleString("es-CL")}.`;
     if (c.editado_en) {
       texto += ` <span style="color:var(--dorado); font-weight:600;">✏️ Editado</span> (última edición: ${new Date(c.editado_en).toLocaleString("es-CL")}).`;
@@ -1526,8 +1624,8 @@ function renderFormularioCuadre(valoresPrevios) {
           const lecturaGuardada = lecturasCuadre.find((l) => l.combustible_id === c.id && l.precio_guardado !== undefined);
           const valorInicial = guardado ?? (lecturaGuardada ? lecturaGuardada.precio_guardado : (vigente ? vigente.precio_clp_litro : ""));
           return `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
-            <label style="margin:0;">${c.nombre}</label>
-            <input type="number" step="1" min="0" id="precioOverride-${c.id}" value="${valorInicial}" placeholder="Sin precio" oninput="recalcularCuadre()" ${soloLectura ? "disabled" : ""}>
+            <label style="margin:0;">${escaparHtml(c.nombre)}</label>
+            <input type="number" step="1" min="0" id="precioOverride-${c.id}" value="${valorInicial}" placeholder="Sin precio" oninput="recalcularCuadre(); guardarBorradorCuadre();" ${soloLectura ? "disabled" : ""}>
           </div>`;
         }).join("")}
       </div>
@@ -1550,7 +1648,7 @@ function renderFormularioCuadre(valoresPrevios) {
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos (app)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.descuentos_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
           <label style="margin:0;">Tarjeta (informado por la máquina de tarjetas)</label>
-          <input type="number" step="1" min="0" id="cuadreTarjeta" value="${valorTarjeta}" oninput="recalcularCuadre()" placeholder="$" ${soloLectura ? "disabled" : ""}>
+          <input type="number" step="1" min="0" id="cuadreTarjeta" value="${valorTarjeta}" oninput="recalcularCuadre(); guardarBorradorCuadre();" placeholder="$" ${soloLectura ? "disabled" : ""}>
         </div>
       </div>
       <div id="cuadreDiferencia" style="font-size:16px; margin-bottom:14px;"></div>
@@ -1666,7 +1764,9 @@ function recalcularCuadre() {
     const filaDatos = document.getElementById(`filaDatos-${i}`);
     const filaError = document.getElementById(`filaError-${i}`);
 
-    if (entradaInput.value === "" || salidaInput.value === "") {
+    // "." solo (sin dígitos) puede pasar momentáneamente al escribir en el nuevo input de
+    // texto (ya no lo evita el navegador como con type="number"); se trata igual que vacío.
+    if (entradaInput.value === "" || entradaInput.value === "." || salidaInput.value === "" || salidaInput.value === ".") {
       litrosCell.textContent = "-";
       litrosCell.style.color = "";
       montoCell.textContent = "-";
@@ -1804,6 +1904,7 @@ async function cerrarTurno() {
       lecturas,
       precios_override: leerPreciosOverrideCuadre(),
     });
+    borrarBorradorCuadre(); // ya quedó guardado en el servidor, el borrador local ya no aplica
     await avisar("Turno cerrado correctamente.", "Listo");
     await cargarTurnoCuadre();
   } catch (err) {
@@ -1832,6 +1933,7 @@ async function guardarEdicionCuadre() {
 
   try {
     await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, lecturas, precios_override: leerPreciosOverrideCuadre() });
+    borrarBorradorCuadre(); // ya quedó guardado en el servidor, el borrador local ya no aplica
     await avisar("Cambios guardados.", "Listo");
     await cargarTurnoCuadre();
   } catch (err) {
@@ -1846,7 +1948,7 @@ let ultimoHistorialCuadres = []; // guarda las filas cargadas para poder exporta
 async function cargarHistorialCuadres() {
   const cont = document.getElementById("tab-historial-cuadres");
   await cargarCatalogos();
-  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
@@ -1891,8 +1993,8 @@ async function buscarHistorialCuadres() {
         const diferencia = Number(c.diferencia);
         return `<tr>
           <td>${new Date(c.turno_fin).toLocaleDateString("es-CL")}</td>
-          <td>${NOMBRE_TURNO[c.turno] || c.turno}</td>
-          <td>${c.sucursal_nombre}</td>
+          <td>${NOMBRE_TURNO[c.turno] || escaparHtml(c.turno)}</td>
+          <td>${escaparHtml(c.sucursal_nombre)}</td>
           <td>${fmt(c.litros_totales)}</td>
           <td>$${fmt(c.litros_precio_total)}</td>
           <td>$${fmt(c.tarjeta_total)}</td>
@@ -1900,7 +2002,7 @@ async function buscarHistorialCuadres() {
           <td>$${fmt(c.descuentos_total)}</td>
           <td>$${fmt(suma)}</td>
           <td style="color:${colorDiferencia(diferencia)};">$${fmt(diferencia)}</td>
-          <td>${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}${c.editado_en ? ' <span style="color:var(--dorado); font-weight:600;" title="Editado el ' + new Date(c.editado_en).toLocaleString("es-CL") + '">✏️ Editado</span>' : ""}</td>
+          <td>${escaparHtml(`${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}`)}${c.editado_en ? ' <span style="color:var(--dorado); font-weight:600;" title="Editado el ' + new Date(c.editado_en).toLocaleString("es-CL") + '">✏️ Editado</span>' : ""}</td>
           <td><a style="color:var(--dorado); cursor:pointer;" onclick="verDetalleCuadre(${c.id})">Ver detalle</a></td>
         </tr>`;
       }).join("") || '<tr><td colspan="12">Sin registros</td></tr>'}
@@ -1917,14 +2019,14 @@ async function verDetalleCuadre(cuadreId) {
     <div class="overlay-modal">
       <div class="modal" style="max-width:520px; max-height:80vh; display:flex; flex-direction:column;">
         <h3 style="flex-shrink:0;">Detalle del cuadre</h3>
-        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${cuadre.sucursal_nombre} · ${NOMBRE_TURNO[cuadre.turno] || cuadre.turno} · ${new Date(cuadre.turno_fin).toLocaleDateString("es-CL")}</p>
+        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${escaparHtml(cuadre.sucursal_nombre)} · ${NOMBRE_TURNO[cuadre.turno] || escaparHtml(cuadre.turno)} · ${new Date(cuadre.turno_fin).toLocaleDateString("es-CL")}</p>
         <div style="overflow:auto; max-width:100%; flex:1; min-height:0;">
           <table style="min-width:0; width:100%;">
             <tr><th>Máquina</th><th>Combustible</th><th>Litros</th><th>Precio/L</th><th>Monto</th></tr>
             ${lecturas.map((l) => `
               <tr>
-                <td>${l.maquina_nombre}</td>
-                <td>${l.combustible_nombre}</td>
+                <td>${escaparHtml(l.maquina_nombre)}</td>
+                <td>${escaparHtml(l.combustible_nombre)}</td>
                 <td>${fmt(l.litros)}</td>
                 <td>$${fmt(l.precio_clp_litro)}</td>
                 <td>$${fmt(l.monto_clp)}</td>
@@ -2012,7 +2114,7 @@ async function cargarReportesCuadres() {
   const cont = document.getElementById("tab-reportes-cuadres");
   await cargarCatalogos();
   const hoy = fechaLocalISO(new Date());
-  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <div class="grid-2">
@@ -2066,15 +2168,15 @@ async function buscarReportesCuadres() {
   const litrosCombustible = litrosPorCombustible(data.desglose);
   const montoCombustible = montoPorCombustible(data.desglose);
   const litrosCombustibleHtml = litrosCombustible.length
-    ? `<div class="grid-2">${litrosCombustible.map(([c, l]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">${fmt(l)} L</div></div>`).join("")}</div>`
+    ? `<div class="grid-2">${litrosCombustible.map(([c, l]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${escaparHtml(c)}</div><div style="font-size:17px; font-weight:600;">${fmt(l)} L</div></div>`).join("")}</div>`
     : `<p class="chico">Sin datos</p>`;
   const montoCombustibleHtml = montoCombustible.length
-    ? `<div class="grid-2">${montoCombustible.map(([c, m]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${c}</div><div style="font-size:17px; font-weight:600;">$${fmt(m)}</div></div>`).join("")}</div>`
+    ? `<div class="grid-2">${montoCombustible.map(([c, m]) => `<div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">${escaparHtml(c)}</div><div style="font-size:17px; font-weight:600;">$${fmt(m)}</div></div>`).join("")}</div>`
     : `<p class="chico">Sin datos</p>`;
 
   cont.innerHTML = `
     <div class="tarjeta">
-      <p class="chico">${rangoTexto} · Sucursal: ${sucursalTexto}</p>
+      <p class="chico">${rangoTexto} · Sucursal: ${escaparHtml(sucursalTexto)}</p>
       <h3>Totales</h3>
       <div class="grid-2" style="margin-top:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Turnos cerrados</div><div style="font-size:17px; font-weight:600;">${data.turnos_cerrados}</div></div>
@@ -2097,7 +2199,7 @@ async function buscarReportesCuadres() {
       <h3>Por sucursal y combustible</h3>
       <table>
         <tr><th>Sucursal</th><th>Combustible</th><th>Litros</th><th>Monto total</th><th>Precio promedio $/L</th></tr>
-        ${data.desglose.map((d) => `<tr><td>${d.sucursal}</td><td>${d.combustible}</td><td>${fmt(d.litros)}</td><td>$${fmt(d.monto_total)}</td><td>$${fmt(d.precio_promedio)}</td></tr>`).join("") || '<tr><td colspan="5">Sin datos</td></tr>'}
+        ${data.desglose.map((d) => `<tr><td>${escaparHtml(d.sucursal)}</td><td>${escaparHtml(d.combustible)}</td><td>${fmt(d.litros)}</td><td>$${fmt(d.monto_total)}</td><td>$${fmt(d.precio_promedio)}</td></tr>`).join("") || '<tr><td colspan="5">Sin datos</td></tr>'}
       </table>
       <p class="chico" style="margin-top:8px;">El precio promedio es monto total ÷ litros — ponderado automáticamente si el período cruza un cambio de precio.</p>
     </div>`;
@@ -2167,7 +2269,7 @@ async function cargarDescargas() {
   const cont = document.getElementById("tab-descargas");
   const [, usuarios] = await Promise.all([cargarCatalogos(), Api.get("/usuarios")]);
   bomberosCacheDescargas = usuarios;
-  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
   cont.innerHTML = `
     <div class="tarjeta">
       <button class="secundario" onclick="toggleFormDescarga()">+ Registrar descarga</button>
@@ -2219,7 +2321,7 @@ function actualizarBomberosDescarga() {
   const sucursalId = Number(document.getElementById("nDescargaSucursal").value);
   const select = document.getElementById("nDescargaBombero");
   const bomberos = bomberosCacheDescargas.filter((u) => u.rol === "bombero" && u.sucursal_id === sucursalId);
-  select.innerHTML = bomberos.map((u) => `<option value="${u.id}">${u.nombre} ${u.apellido || ""}</option>`).join("") || '<option value="">Sin bomberos en esta sucursal</option>';
+  select.innerHTML = bomberos.map((u) => `<option value="${u.id}">${escaparHtml(`${u.nombre} ${u.apellido || ""}`)}</option>`).join("") || '<option value="">Sin bomberos en esta sucursal</option>';
 }
 
 /** Igual que actualizarBomberosDescarga() pero para el filtro del historial (incluye "Todos"). */
@@ -2229,7 +2331,7 @@ function actualizarBomberosFiltroDescargas() {
   const bomberos = sucursalId
     ? bomberosCacheDescargas.filter((u) => u.rol === "bombero" && u.sucursal_id === Number(sucursalId))
     : bomberosCacheDescargas.filter((u) => u.rol === "bombero");
-  select.innerHTML = '<option value="">Todos</option>' + bomberos.map((u) => `<option value="${u.id}">${u.nombre} ${u.apellido || ""}</option>`).join("");
+  select.innerHTML = '<option value="">Todos</option>' + bomberos.map((u) => `<option value="${u.id}">${escaparHtml(`${u.nombre} ${u.apellido || ""}`)}</option>`).join("");
 }
 
 async function crearDescarga() {
@@ -2290,8 +2392,8 @@ async function buscarDescargas() {
         return `<tr>
           <td>${fechaHora.toLocaleDateString("es-CL")}</td>
           <td>${fechaHora.toLocaleTimeString("es-CL")}</td>
-          <td>${d.sucursal_nombre}</td>
-          <td>${d.bombero_nombre} ${d.bombero_apellido || ""}</td>
+          <td>${escaparHtml(d.sucursal_nombre)}</td>
+          <td>${escaparHtml(`${d.bombero_nombre} ${d.bombero_apellido || ""}`)}</td>
           <td>$${fmt(d.monto)}</td>
           <td><span style="color:var(--rojo); cursor:pointer;" onclick="eliminarDescarga(${d.id}, '${fechaHoraTexto}', ${d.monto})" title="Eliminar">🗑️</span></td>
         </tr>`;
