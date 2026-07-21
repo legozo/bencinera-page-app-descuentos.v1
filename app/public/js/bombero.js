@@ -5,6 +5,14 @@ if (usuarioActual) {
 
 let ultimaBusqueda = null; // guarda { es_socio, socio, reglas_descuento, rut, modo_offline }
 
+/** Copia del mismo redondeo que usa el servidor (ver transacciones.js): el peso chileno ya
+ * no usa monedas de $1 ni $5, así que el descuento y el monto a cobrar se redondean al
+ * múltiplo de $10 más cercano. Se calcula igual acá para que esta vista previa (antes de
+ * registrar) coincida exactamente con lo que el servidor va a guardar y cobrar. */
+function redondearA10Cliente(valor) {
+  return Math.round(valor / 10) * 10;
+}
+
 // ---------- Estado de conexión y sincronización ----------
 function renderizarEstado() {
   const div = document.getElementById("estadoConexion");
@@ -140,8 +148,8 @@ function recalcular() {
     return;
   }
 
-  const descuentoTotal = Math.round(descuento * litros * 100) / 100;
-  const montoTotal = Math.round((precio - descuento) * litros * 100) / 100;
+  const descuentoTotal = redondearA10Cliente(descuento * litros);
+  const montoTotal = redondearA10Cliente((precio - descuento) * litros);
   calculoDiv.innerHTML = `
     Precio litro: $${precio.toLocaleString("es-CL")} — Descuento litro: $${descuento.toLocaleString("es-CL")}<br>
     Descuento total: $${descuentoTotal.toLocaleString("es-CL")}<br>
