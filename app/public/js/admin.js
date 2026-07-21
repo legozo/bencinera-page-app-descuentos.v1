@@ -1358,8 +1358,9 @@ async function guardarPrecioCelda(sucursalId, combustibleId) {
 // ---------- Cuadre de caja ----------
 let maquinasCacheCuadre = [];
 let preciosCacheCuadre = [];
+let bomberosCacheCuadre = []; // lista de usuarios (para el selector de "bomberos en turno" del cuadre)
 let lecturasCuadre = []; // [{maquina_id, maquina_nombre, combustible_id, combustible_nombre, lectura_entrada, lectura_salida_guardada?}]
-let cuadreInfo = null; // respuesta de GET /cuadres/turno: {existe, editable, turno, turno_inicio, turno_fin, efectivo_total, descuentos_total, cuadre?}
+let cuadreInfo = null; // respuesta de GET /cuadres/turno: {existe, editable, turno, turno_inicio, turno_fin, efectivo_total, descuentos_total, cuadre?, bomberos?}
 let cuadrePendienteToken = 0; // descarta respuestas viejas si el admin cambia sucursal/fecha/turno rápido
 
 const NOMBRE_TURNO = { manana: "Mañana (20:00 - 08:00)", tarde: "Tarde (08:00 - 20:00)" };
@@ -1455,6 +1456,7 @@ function sugerenciaTurnoCuadre() {
 async function cargarCuadreCaja() {
   const cont = document.getElementById("tab-cuadre-caja");
   await cargarCatalogos();
+  bomberosCacheCuadre = await Api.get("/usuarios"); // para el selector de "bomberos en turno"
   const opcionesSucursal = catalogos.sucursales.map((s) => `<option value="${s.id}">${escaparHtml(s.nombre)}</option>`).join("");
   // Si hay un borrador guardado (cuadre sin cerrar, tecleado antes de un F5 o de salir de la
   // pestaña), se abre directo en ESE sucursal/fecha/turno en vez de en la sugerencia de "el
@@ -1501,7 +1503,14 @@ function capturarValoresCuadre() {
     if (precioEl && precioEl.value !== "") valoresPrecios[c.id] = precioEl.value;
   });
   const tarjetaEl = document.getElementById("cuadreTarjeta");
-  return { lecturas: valoresLecturas, precios: valoresPrecios, tarjeta: tarjetaEl ? tarjetaEl.value : "" };
+  const descuentosEl = document.getElementById("cuadreDescuentos");
+  return {
+    lecturas: valoresLecturas,
+    precios: valoresPrecios,
+    tarjeta: tarjetaEl ? tarjetaEl.value : "",
+    descuentos: descuentosEl ? descuentosEl.value : "",
+    bomberos: leerBomberosCuadre(),
+  };
 }
 
 /**
@@ -1601,6 +1610,33 @@ function renderFormularioCuadre(valoresPrevios) {
   }).join("");
 
   const valorTarjeta = valoresPrevios ? valoresPrevios.tarjeta : (cuadreInfo.existe ? cuadreInfo.cuadre.tarjeta_total : "");
+  // Híbrido: el campo de descuentos se precarga con el auto-calculado (cuadre nuevo) o con el
+  // guardado (cuadre existente) — ambos ya vienen en cuadreInfo.descuentos_total desde el
+  // backend — pero queda editable para poder ajustarlo/probar sin depender de transacciones.
+  const valorDescuentos = valoresPrevios ? valoresPrevios.descuentos : cuadreInfo.descuentos_total;
+
+  // Bomberos en turno: los de la sucursal del cuadre, con los ya asignados marcados. Vienen
+  // del borrador (si se estaba llenando) o de cuadreInfo.bomberos (cuadre ya guardado). Es un
+  // dato opcional: si la sucursal no tiene bomberos cargados, se muestra un aviso.
+  const sucursalIdCuadre = Number(document.getElementById("cuadreSucursal").value);
+  const bomberosSucursal = bomberosCacheCuadre.filter((u) => u.rol === "bombero" && u.sucursal_id === sucursalIdCuadre);
+  const bomberosSeleccionados = (valoresPrevios && valoresPrevios.bomberos ? valoresPrevios.bomberos : (cuadreInfo.bomberos || [])).map(Number);
+  // Menú desplegable (<details>): el resumen muestra los bomberos elegidos (o un texto guía),
+  // y al abrirlo se marcan con casillas. Ocupa una sola línea cerrado.
+  const nombresSeleccionados = bomberosSucursal.filter((u) => bomberosSeleccionados.includes(u.id)).map((u) => `${u.nombre} ${u.apellido || ""}`.trim());
+  const resumenBomberos = nombresSeleccionados.length ? escaparHtml(nombresSeleccionados.join(", ")) : "Elegir bomberos…";
+  const bomberosHtml = bomberosSucursal.length
+    ? `<details id="cuadreBomberosMenu" style="border:0.5px solid var(--borde); border-radius:8px;">
+         <summary id="cuadreBomberosResumen" style="padding:10px 12px; cursor:pointer; ${soloLectura ? "pointer-events:none; opacity:.6;" : ""}">${resumenBomberos}</summary>
+         <div style="border-top:1px solid var(--borde); padding:6px 12px;">
+           ${bomberosSucursal.map((u) => `
+             <label style="display:flex; align-items:center; gap:8px; padding:5px 0; cursor:pointer;">
+               <input type="checkbox" class="cuadre-bombero-chk" value="${u.id}" ${bomberosSeleccionados.includes(u.id) ? "checked" : ""} ${soloLectura ? "disabled" : ""} onchange="actualizarResumenBomberos(); guardarBorradorCuadre();" style="width:auto;">
+               ${escaparHtml(`${u.nombre} ${u.apellido || ""}`.trim())}
+             </label>`).join("")}
+         </div>
+       </details>`
+    : `<p class="chico" style="margin:0;">No hay bomberos cargados en esta sucursal. Puedes agregarlos en la pestaña Usuarios.</p>`;
 
   let avisoEstado = "";
   if (cuadreInfo.existe) {
@@ -1664,11 +1700,21 @@ function renderFormularioCuadre(valoresPrevios) {
     </div>
 
     <div class="tarjeta">
+      <h3>Bomberos en turno</h3>
+      <p class="chico">Abre el menú y marca el o los bomberos que atendieron este turno (opcional). Aparecerá en el Historial de cuadres.</p>
+      <div>${bomberosHtml}</div>
+    </div>
+
+    <div class="tarjeta">
       <h3>Resumen del turno</h3>
       <div class="grid-2" style="margin-bottom:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Precio × litro</div><div id="statLitrosPrecio" style="font-size:17px; font-weight:600;">$0</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo (descargas)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.efectivo_total)}</div></div>
-        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos (app)</div><div style="font-size:17px; font-weight:600;">$${fmt(cuadreInfo.descuentos_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
+          <label style="margin:0;">Descuentos (app)</label>
+          <input type="number" step="1" min="0" id="cuadreDescuentos" value="${valorDescuentos}" oninput="recalcularCuadre(); guardarBorradorCuadre();" placeholder="$" ${soloLectura ? "disabled" : ""}>
+          <div class="chico" style="margin-top:4px;">Precargado con el total calculado de las transacciones del turno. Se puede ajustar a mano para este cuadre.</div>
+        </div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;">
           <label style="margin:0;">Tarjeta (informado por la máquina de tarjetas)</label>
           <input type="number" step="1" min="0" id="cuadreTarjeta" value="${valorTarjeta}" oninput="recalcularCuadre(); guardarBorradorCuadre();" placeholder="$" ${soloLectura ? "disabled" : ""}>
@@ -1832,7 +1878,9 @@ function recalcularCuadre() {
   });
 
   const tarjeta = Number(document.getElementById("cuadreTarjeta").value) || 0;
-  const diferencia = Math.round((litrosPrecioTotal - (cuadreInfo.efectivo_total + tarjeta + cuadreInfo.descuentos_total)) * 100) / 100;
+  // Descuentos ahora es un input editable (precargado con el auto-calculado), no un valor fijo.
+  const descuentos = Number(document.getElementById("cuadreDescuentos").value) || 0;
+  const diferencia = Math.round((litrosPrecioTotal - (cuadreInfo.efectivo_total + tarjeta + descuentos)) * 100) / 100;
 
   document.getElementById("statLitrosPrecio").textContent = "$" + fmt(litrosPrecioTotal);
   document.getElementById("cuadreDiferencia").innerHTML =
@@ -1896,6 +1944,32 @@ function leerTarjetaCuadre(errorDiv) {
   return Number(tarjetaInput.value);
 }
 
+/** Igual que leerTarjetaCuadre pero para el monto de descuentos (editable en esta versión). */
+function leerDescuentosCuadre(errorDiv) {
+  const descuentosInput = document.getElementById("cuadreDescuentos");
+  if (descuentosInput.value === "" || Number(descuentosInput.value) < 0) {
+    errorDiv.textContent = "Ingresa el monto de descuentos (0 o mayor).";
+    errorDiv.classList.remove("oculto");
+    return null;
+  }
+  return Number(descuentosInput.value);
+}
+
+/** Devuelve los ids de los bomberos en turno marcados en el menú desplegable (array,
+ * posiblemente vacío — es opcional). */
+function leerBomberosCuadre() {
+  return [...document.querySelectorAll(".cuadre-bombero-chk:checked")].map((el) => Number(el.value));
+}
+
+/** Actualiza el texto del resumen del menú desplegable de bomberos con los nombres marcados
+ * (o el texto guía si no hay ninguno), para que se vea a quién se eligió sin abrirlo. */
+function actualizarResumenBomberos() {
+  const resumen = document.getElementById("cuadreBomberosResumen");
+  if (!resumen) return;
+  const nombres = [...document.querySelectorAll(".cuadre-bombero-chk:checked")].map((el) => el.parentNode.textContent.trim());
+  resumen.textContent = nombres.length ? nombres.join(", ") : "Elegir bomberos…";
+}
+
 async function cerrarTurno() {
   const errorDiv = document.getElementById("errorCuadre");
   errorDiv.classList.add("oculto");
@@ -1908,6 +1982,8 @@ async function cerrarTurno() {
   }
   const tarjetaTotal = leerTarjetaCuadre(errorDiv);
   if (tarjetaTotal === null) return;
+  const descuentosTotal = leerDescuentosCuadre(errorDiv);
+  if (descuentosTotal === null) return;
 
   const fecha = document.getElementById("cuadreFecha").value;
   let mensajeConfirmacion = `¿Cerrar el turno ${NOMBRE_TURNO[cuadreInfo.turno]} del ${fecha}? Esta acción no se puede deshacer.`;
@@ -1924,8 +2000,10 @@ async function cerrarTurno() {
       fecha,
       turno: cuadreInfo.turno,
       tarjeta_total: tarjetaTotal,
+      descuentos_total: descuentosTotal,
       lecturas,
       precios_override: leerPreciosOverrideCuadre(),
+      bomberos: leerBomberosCuadre(),
     });
     borrarBorradorCuadre(); // ya quedó guardado en el servidor, el borrador local ya no aplica
     await avisar("Turno cerrado correctamente.", "Listo");
@@ -1950,12 +2028,14 @@ async function guardarEdicionCuadre() {
   }
   const tarjetaTotal = leerTarjetaCuadre(errorDiv);
   if (tarjetaTotal === null) return;
+  const descuentosTotal = leerDescuentosCuadre(errorDiv);
+  if (descuentosTotal === null) return;
 
   const confirmado = await confirmarAccion("¿Guardar los cambios de este cuadre? Va a quedar marcado como editado.", "Guardar cambios");
   if (!confirmado) return;
 
   try {
-    await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, lecturas, precios_override: leerPreciosOverrideCuadre() });
+    await Api.put(`/cuadres/${cuadreInfo.cuadre.id}`, { tarjeta_total: tarjetaTotal, descuentos_total: descuentosTotal, lecturas, precios_override: leerPreciosOverrideCuadre(), bomberos: leerBomberosCuadre() });
     borrarBorradorCuadre(); // ya quedó guardado en el servidor, el borrador local ya no aplica
     await avisar("Cambios guardados.", "Listo");
     await cargarTurnoCuadre();
@@ -2010,10 +2090,12 @@ async function buscarHistorialCuadres() {
 
   cont.innerHTML = `
     <table>
-      <tr><th>Fecha</th><th>Turno</th><th>Sucursal</th><th>Litros</th><th>Litros × precio</th><th>Tarjeta</th><th>Efectivo</th><th>Descuentos</th><th>Suma (T+E+D)</th><th>Diferencia</th><th>Cerrado por</th><th></th></tr>
+      <tr><th>Fecha</th><th>Turno</th><th>Sucursal</th><th>Litros</th><th>Litros × precio</th><th>Tarjeta</th><th>Efectivo</th><th>Descuentos</th><th>Suma (T+E+D)</th><th>Diferencia</th><th>Bomberos en turno</th><th>Cerrado por</th><th></th></tr>
       ${rows.map((c) => {
         const suma = Number(c.tarjeta_total) + Number(c.efectivo_total) + Number(c.descuentos_total);
         const diferencia = Number(c.diferencia);
+        const bomberos = Array.isArray(c.bomberos_turno) ? c.bomberos_turno : [];
+        const bomberosTexto = bomberos.length ? bomberos.map((b) => escaparHtml(`${b.nombre} ${b.apellido || ""}`.trim())).join(", ") : "-";
         return `<tr>
           <td>${new Date(c.turno_fin).toLocaleDateString("es-CL")}</td>
           <td>${NOMBRE_TURNO[c.turno] || escaparHtml(c.turno)}</td>
@@ -2025,10 +2107,11 @@ async function buscarHistorialCuadres() {
           <td>$${fmt(c.descuentos_total)}</td>
           <td>$${fmt(suma)}</td>
           <td style="color:${colorDiferencia(diferencia)};">$${fmt(diferencia)}</td>
+          <td>${bomberosTexto}</td>
           <td>${escaparHtml(`${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}`)}${c.editado_en ? ' <span style="color:var(--dorado); font-weight:600;" title="Editado el ' + new Date(c.editado_en).toLocaleString("es-CL") + '">✏️ Editado</span>' : ""}</td>
           <td><a style="color:var(--dorado); cursor:pointer;" onclick="verDetalleCuadre(${c.id})">Ver detalle</a></td>
         </tr>`;
-      }).join("") || '<tr><td colspan="12">Sin registros</td></tr>'}
+      }).join("") || '<tr><td colspan="13">Sin registros</td></tr>'}
     </table>
     <p class="chico" style="margin-top:8px;">Suma (T+E+D) = Tarjeta + Efectivo + Descuentos. Diferencia = Litros × precio − Suma.</p>`;
 }
@@ -2036,13 +2119,18 @@ async function buscarHistorialCuadres() {
 /** Muestra en un modal las lecturas de un cuadre (máquina, combustible, litros, precio usado
  * y monto), con el precio real guardado en ese momento aunque el catálogo haya cambiado después. */
 async function verDetalleCuadre(cuadreId) {
-  const { cuadre, lecturas } = await Api.get(`/cuadres/${cuadreId}`);
+  const { cuadre, lecturas, bomberos } = await Api.get(`/cuadres/${cuadreId}`);
   const cont = document.getElementById("modalContenedor");
+  const bomberosTurno = Array.isArray(bomberos) ? bomberos : [];
+  const bomberosTexto = bomberosTurno.length
+    ? bomberosTurno.map((b) => escaparHtml(`${b.nombre} ${b.apellido || ""}`.trim())).join(", ")
+    : "—";
   cont.innerHTML = `
     <div class="overlay-modal">
       <div class="modal" style="max-width:520px; max-height:80vh; display:flex; flex-direction:column;">
         <h3 style="flex-shrink:0;">Detalle del cuadre</h3>
-        <p class="chico" style="margin:0 0 14px; flex-shrink:0;">${escaparHtml(cuadre.sucursal_nombre)} · ${NOMBRE_TURNO[cuadre.turno] || escaparHtml(cuadre.turno)} · ${new Date(cuadre.turno_fin).toLocaleDateString("es-CL")}</p>
+        <p class="chico" style="margin:0 0 6px; flex-shrink:0;">${escaparHtml(cuadre.sucursal_nombre)} · ${NOMBRE_TURNO[cuadre.turno] || escaparHtml(cuadre.turno)} · ${new Date(cuadre.turno_fin).toLocaleDateString("es-CL")}</p>
+        <p class="chico" style="margin:0 0 14px; flex-shrink:0;"><strong>Bomberos en turno:</strong> ${bomberosTexto}</p>
         <div style="overflow:auto; max-width:100%; flex:1; min-height:0;">
           <table style="min-width:0; width:100%;">
             <tr><th>Máquina</th><th>Combustible</th><th>Litros</th><th>Precio/L</th><th>Monto</th></tr>
@@ -2088,7 +2176,7 @@ function exportarHistorialCuadresCSV() {
 
   const encabezados = [
     "Fecha", "Turno", "Sucursal", "Litros", "Litros por precio", "Tarjeta", "Efectivo",
-    "Descuentos", "Suma (T+E+D)", "Diferencia", "Cerrado por", "Editado",
+    "Descuentos", "Suma (T+E+D)", "Diferencia", "Bomberos en turno", "Cerrado por", "Editado",
   ];
 
   const escaparCsv = (valor) => {
@@ -2101,6 +2189,8 @@ function exportarHistorialCuadresCSV() {
   const filas = ultimoHistorialCuadres.map((c) => {
     const suma = Number(c.tarjeta_total) + Number(c.efectivo_total) + Number(c.descuentos_total);
     const cerradoPor = `${c.cerrado_por_nombre} ${c.cerrado_por_apellido || ""}`.trim();
+    const bomberos = Array.isArray(c.bomberos_turno) ? c.bomberos_turno : [];
+    const bomberosTexto = bomberos.map((b) => `${b.nombre} ${b.apellido || ""}`.trim()).join(", ");
     return [
       new Date(c.turno_fin).toLocaleDateString("es-CL"),
       NOMBRE_TURNO[c.turno] || c.turno,
@@ -2112,6 +2202,7 @@ function exportarHistorialCuadresCSV() {
       c.descuentos_total,
       suma,
       c.diferencia,
+      bomberosTexto,
       cerradoPor,
       c.editado_en ? `Sí (${new Date(c.editado_en).toLocaleString("es-CL")})` : "No",
     ].map(escaparCsv).join(";");

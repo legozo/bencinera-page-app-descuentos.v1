@@ -217,3 +217,16 @@ CREATE INDEX IF NOT EXISTS idx_cuadre_lecturas_maquina ON cuadre_lecturas(maquin
 -- la garantía final a nivel de base de datos.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cuadre_lecturas_unicas
     ON cuadre_lecturas(cuadre_id, maquina_id, combustible_id);
+
+-- Bomberos que estuvieron en turno en un cuadre. Es distinto de cuadres_caja.cerrado_por (el
+-- admin que registró el cuadre): esto es quién ATENDIÓ ese turno. Puede haber varios por
+-- cuadre (relevos, varias máquinas), de ahí la tabla aparte con llave primaria compuesta que
+-- evita duplicar el mismo bombero en el mismo cuadre. Es un dato informativo; opcional (un
+-- cuadre puede no tener ninguno). ON DELETE CASCADE: si se borra el cuadre, se borran sus filas.
+CREATE TABLE IF NOT EXISTS cuadre_bomberos (
+    cuadre_id INTEGER NOT NULL REFERENCES cuadres_caja(id) ON DELETE CASCADE,
+    bombero_id INTEGER NOT NULL REFERENCES usuarios(id),
+    PRIMARY KEY (cuadre_id, bombero_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cuadre_bomberos_cuadre ON cuadre_bomberos(cuadre_id);
