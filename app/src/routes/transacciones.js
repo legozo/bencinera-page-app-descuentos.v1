@@ -6,6 +6,12 @@ const { requiereAuth, requiereRol } = require("../auth");
 const router = express.Router();
 router.use(requiereAuth);
 
+/** El peso chileno ya no usa monedas de $1 ni $5 en la práctica: cualquier monto que se
+ * cobre o entregue en efectivo se redondea al múltiplo de $10 más cercano. */
+function redondearA10(valor) {
+  return Math.round(valor / 10) * 10;
+}
+
 /**
  * Lógica central para registrar una venta, compartida entre el registro en línea (POST /)
  * y la sincronización de ventas guardadas offline (POST /sync). Siempre vuelve a calcular
@@ -98,8 +104,14 @@ async function registrarVenta({ sucursalId, usuarioId, rut, combustibleId, litro
     descuentoPorLitro = reglaRes.rows[0] ? Number(reglaRes.rows[0].descuento_clp_litro) : 0;
   }
 
-  const descuentoTotal = Math.round(descuentoPorLitro * litrosNum * 100) / 100;
-  const montoTotal = Math.round((precioLitro - descuentoPorLitro) * litrosNum * 100) / 100;
+  // Antes se redondeaba a centavos (Math.round(x*100)/100), pero el peso chileno no tiene
+  // centavos en uso real, y desde que las monedas de $1 y $5 tampoco circulan, ni siquiera un
+  // peso suelto es cobrable. Se redondea el descuento y el monto a cobrar (los dos valores que
+  // se pagan/registran en efectivo) al múltiplo de $10 más cercano — puede quedar hasta $10 de
+  // diferencia entre precioLitro×litros (sin redondear) y (descuentoTotal + montoTotal); se
+  // acepta esa pérdida de precisión porque no hay forma real de cobrar centavos o pesos sueltos.
+  const descuentoTotal = redondearA10(descuentoPorLitro * litrosNum);
+  const montoTotal = redondearA10((precioLitro - descuentoPorLitro) * litrosNum);
 
   const { rows } = await db.query(
     `INSERT INTO transacciones
