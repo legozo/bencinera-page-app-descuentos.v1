@@ -208,6 +208,26 @@ async function insertarLecturas(client, cuadreId, lecturasCalculadas) {
 }
 
 /**
+ * Guarda los bomberos que estuvieron en turno en un cuadre (tabla cuadre_bomberos). `bomberos`
+ * es un array de ids de usuario (opcional; puede venir vacío). Se validan contra la base: solo
+ * se guardan los que realmente son bomberos de ESA sucursal — el frontend ya los filtra, pero
+ * se revalida acá para no guardar un usuario que no corresponde. Duplicados se descartan.
+ */
+async function insertarBomberos(client, cuadreId, sucursalId, bomberos) {
+  if (!Array.isArray(bomberos)) return;
+  const ids = [...new Set(bomberos.map((b) => Number(b)).filter((n) => Number.isInteger(n) && n > 0))];
+  if (ids.length === 0) return;
+  const validos = await client.query(
+    "SELECT id FROM usuarios WHERE id = ANY($1::int[]) AND rol = 'bombero' AND sucursal_id = $2",
+    [ids, sucursalId]
+  );
+  const idsValidos = validos.rows.map((r) => r.id);
+  if (idsValidos.length === 0) return;
+  const valoresSql = idsValidos.map((_, i) => `($1, $${i + 2})`).join(", ");
+  await client.query(`INSERT INTO cuadre_bomberos (cuadre_id, bombero_id) VALUES ${valoresSql}`, [cuadreId, ...idsValidos]);
+}
+
+/**
  * Trae el estado de un turno específico (fecha+turno elegidos por el admin en el calendario):
  * - si no existe todavía, arma el formulario de creación (lecturas con entrada precargada del
  *   cuadre anterior más cercano a esta fecha, no necesariamente el último en general).
@@ -236,7 +256,7 @@ router.get("/turno", async (req, res) => {
 
   if (existente.rows[0]) {
     const cuadre = existente.rows[0];
-    const [posteriorRes, lecturasRes, maquinasRes, combustiblesRes, ultimasLecturasRes, precios] = await Promise.all([
+    const [posteriorRes, lecturasRes, maquinasRes, combustiblesRes, ultimasLecturasRes, bomberosRes, precios] = await Promise.all([
       db.query("SELECT EXISTS(SELECT 1 FROM cuadres_caja WHERE sucursal_id = $1 AND turno_fin > $2) AS hay", [sucursal_id, cuadre.turno_fin]),
       db.query(
         `SELECT l.*, m.nombre AS maquina_nombre, co.nombre AS combustible_nombre
@@ -257,6 +277,7 @@ router.get("/turno", async (req, res) => {
          ORDER BY l.maquina_id, l.combustible_id, c.turno_fin DESC`,
         [sucursal_id, inicio]
       ),
+      db.query("SELECT bombero_id FROM cuadre_bomberos WHERE cuadre_id = $1", [cuadre.id]),
       preciosVigentes(db, sucursal_id, fin),
     ]);
     const editable = !posteriorRes.rows[0].hay;
@@ -303,6 +324,7 @@ router.get("/turno", async (req, res) => {
       precios,
       cuadre,
       lecturas,
+      bomberos: bomberosRes.rows.map((r) => r.bombero_id),
     });
   }
 
@@ -342,7 +364,7 @@ router.get("/turno", async (req, res) => {
 
 /** Cierra un turno nuevo (fecha+turno elegidos, no tiene que ser "el de ahora"). */
 router.post("/", async (req, res) => {
-  const { sucursal_id, fecha, turno, tarjeta_total, descuentos_total, lecturas, precios_override } = req.body || {};
+  const { sucursal_id, fecha, turno, tarjeta_total, descuentos_total, lecturas, precios_override, bomberos } = req.body || {};
 
   // Number.isFinite y no solo "< 0": rechaza también NaN (ej. tarjeta_total "abc", donde
   // NaN < 0 es false) e Infinity, que Postgres aceptaría guardar en NUMERIC y envenenarían
@@ -384,6 +406,7 @@ router.post("/", async (req, res) => {
     );
     const cuadre = cuadreRes.rows[0];
     await insertarLecturas(client, cuadre.id, lecturasCalculadas);
+    await insertarBomberos(client, cuadre.id, sucursal_id, bomberos);
 
     await client.query("COMMIT");
     res.status(201).json({ ...cuadre, litros_precio_total: litrosPrecioTotal });
@@ -408,7 +431,7 @@ router.post("/", async (req, res) => {
  * valores nuevos y deja registrado quién editó y cuándo (pisando el cerrado_por original).
  */
 router.put("/:id", async (req, res) => {
-  const { tarjeta_total, descuentos_total, lecturas, precios_override } = req.body || {};
+  const { tarjeta_total, descuentos_total, lecturas, precios_override, bomberos } = req.body || {};
   // Mismo Number.isFinite que en POST /: rechaza NaN/Infinity, no solo negativos.
   if (!Number.isFinite(Number(tarjeta_total)) || Number(tarjeta_total) < 0) {
     return res.status(400).json({ error: "tarjeta_total (0 o mayor) es obligatorio." });
@@ -460,6 +483,8 @@ router.put("/:id", async (req, res) => {
 
     await client.query("DELETE FROM cuadre_lecturas WHERE cuadre_id = $1", [cuadreActual.id]);
     await insertarLecturas(client, cuadreActual.id, lecturasCalculadas);
+    await client.query("DELETE FROM cuadre_bomberos WHERE cuadre_id = $1", [cuadreActual.id]);
+    await insertarBomberos(client, cuadreActual.id, cuadreActual.sucursal_id, bomberos);
 
     await client.query("COMMIT");
     res.json({ ...cuadreRes.rows[0], litros_precio_total: litrosPrecioTotal });
@@ -482,7 +507,10 @@ router.get("/", async (req, res) => {
   const { rows } = await db.query(
     `SELECT c.*, s.nombre AS sucursal_nombre, u.nombre AS cerrado_por_nombre, u.apellido AS cerrado_por_apellido,
             COALESCE(SUM(l.litros), 0) AS litros_totales,
-            COALESCE(SUM(l.monto_clp), 0) AS litros_precio_total
+            COALESCE(SUM(l.monto_clp), 0) AS litros_precio_total,
+            (SELECT COALESCE(json_agg(json_build_object('nombre', bu.nombre, 'apellido', bu.apellido) ORDER BY bu.nombre), '[]'::json)
+             FROM cuadre_bomberos cb JOIN usuarios bu ON bu.id = cb.bombero_id
+             WHERE cb.cuadre_id = c.id) AS bomberos_turno
      FROM cuadres_caja c
      JOIN sucursales s ON s.id = c.sucursal_id
      JOIN usuarios u ON u.id = c.cerrado_por
@@ -561,16 +589,24 @@ router.get("/:id", async (req, res) => {
     const cuadre = cuadreRes.rows[0];
     if (!cuadre) return res.status(404).json({ error: "Cuadre no encontrado." });
 
-    const lecturasRes = await db.query(
-      `SELECT l.*, m.nombre AS maquina_nombre, co.nombre AS combustible_nombre
-       FROM cuadre_lecturas l
-       JOIN maquinas m ON m.id = l.maquina_id
-       JOIN combustibles co ON co.id = l.combustible_id
-       WHERE l.cuadre_id = $1
-       ORDER BY m.nombre, co.nombre`,
-      [cuadre.id]
-    );
-    res.json({ cuadre, lecturas: lecturasRes.rows });
+    const [lecturasRes, bomberosRes] = await Promise.all([
+      db.query(
+        `SELECT l.*, m.nombre AS maquina_nombre, co.nombre AS combustible_nombre
+         FROM cuadre_lecturas l
+         JOIN maquinas m ON m.id = l.maquina_id
+         JOIN combustibles co ON co.id = l.combustible_id
+         WHERE l.cuadre_id = $1
+         ORDER BY m.nombre, co.nombre`,
+        [cuadre.id]
+      ),
+      db.query(
+        `SELECT bu.nombre, bu.apellido
+         FROM cuadre_bomberos cb JOIN usuarios bu ON bu.id = cb.bombero_id
+         WHERE cb.cuadre_id = $1 ORDER BY bu.nombre`,
+        [cuadre.id]
+      ),
+    ]);
+    res.json({ cuadre, lecturas: lecturasRes.rows, bomberos: bomberosRes.rows });
   } catch (err) {
     if (err.code === "22P02") {
       return res.status(400).json({ error: "Id de cuadre inválido." });
