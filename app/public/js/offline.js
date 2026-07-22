@@ -132,22 +132,31 @@ const Offline = {
 
     this.sincronizando = true;
     try {
-      const respuesta = await Api.post("/transacciones/sync", { items: cola });
-      const resultados = respuesta.resultados || [];
-      const idsAResolver = new Set();
-      for (const r of resultados) {
-        if (r.ok) {
-          idsAResolver.add(r.id_local);
-        } else {
-          // Error real (no de red, porque ya estamos en línea para haber llegado hasta acá):
-          // se saca de la cola activa para no reintentarlo por siempre, y se guarda para avisarle al bombero.
-          idsAResolver.add(r.id_local);
-          const original = cola.find((c) => c.id_local === r.id_local);
-          this.agregarError(original || { id_local: r.id_local }, r.error || "Error desconocido.");
+      // En lotes: el servidor rechaza más de 500 items por petición (400), y ese error no es
+      // de red — mandar la cola entera de una vez dejaba una cola muy grande reintentando
+      // para siempre sin sincronizar nada. El avance se persiste lote a lote, así un corte
+      // de red a mitad de camino conserva lo ya sincronizado.
+      const LOTE_MAX = 500;
+      for (let i = 0; i < cola.length; i += LOTE_MAX) {
+        const lote = cola.slice(i, i + LOTE_MAX);
+        const respuesta = await Api.post("/transacciones/sync", { items: lote });
+        const resultados = respuesta.resultados || [];
+        const idsAResolver = new Set();
+        for (const r of resultados) {
+          if (r.ok) {
+            idsAResolver.add(r.id_local);
+          } else {
+            // Error real (no de red, porque ya estamos en línea para haber llegado hasta acá):
+            // se saca de la cola activa para no reintentarlo por siempre, y se guarda para avisarle al bombero.
+            idsAResolver.add(r.id_local);
+            const original = lote.find((c) => c.id_local === r.id_local);
+            this.agregarError(original || { id_local: r.id_local }, r.error || "Error desconocido.");
+          }
         }
+        // Se relee la cola desde localStorage (no el snapshot `cola`): una venta agregada
+        // mientras se sincronizaba no debe perderse al guardar la cola filtrada.
+        this.guardarCola(this.obtenerCola().filter((c) => !idsAResolver.has(c.id_local)));
       }
-      const colaRestante = cola.filter((c) => !idsAResolver.has(c.id_local));
-      this.guardarCola(colaRestante);
     } catch (err) {
       // Error de red al intentar sincronizar: se deja la cola intacta para reintentar después.
     } finally {
