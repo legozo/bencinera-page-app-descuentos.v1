@@ -176,7 +176,7 @@ async function cargarReportes() {
         <button class="secundario" onclick="filtroReporteRapido('semana')">Esta semana</button>
         <button class="secundario" onclick="filtroReporteRapido('mes')">Este mes</button>
         <button class="secundario" onclick="filtroReporteRapido('todo')">Todo (histórico)</button>
-        <button class="primario" style="margin-top:0; padding:14px 28px; font-size:17px;" onclick="buscarReportes()">Filtrar</button>
+        <button class="primario" style="margin-top:0;" onclick="buscarReportes()">Filtrar</button>
         <button class="limpiar-filtros" onclick="limpiarFiltrosReportes()">✕ Limpiar filtros</button>
         <button class="exportar" onclick="exportarReporteCSV()">📥 Exportar a Excel</button>
       </div>
