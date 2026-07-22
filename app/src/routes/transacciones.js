@@ -323,8 +323,15 @@ router.get("/", requiereRol("admin"), async (req, res) => {
     ),
     // Suma sobre TODAS las filas que calzan con el filtro (no solo la página actual), para
     // que "Total del período" sea correcto aunque el resultado tenga más de una página.
+    // Excluye al socio interno de traspasos de combustible (mismo criterio que Reportes,
+    // ver reportes.js): su "descuento" es el 100% del precio y no es un descuento real a un
+    // socio — sumarlo inflaba este total respecto al de Reportes. Las filas de traspaso sí
+    // se siguen listando en el historial.
     db.query(
-      `SELECT COALESCE(SUM(descuento_total_clp), 0) AS suma_descuentos FROM transacciones t ${where}`,
+      `SELECT COALESCE(SUM(t.descuento_total_clp), 0) AS suma_descuentos
+       FROM transacciones t
+       LEFT JOIN socios s ON s.id = t.socio_id
+       ${condiciones.length ? `${where} AND` : "WHERE"} (s.es_interno IS NOT TRUE)`,
       valores
     ),
   ]);

@@ -535,7 +535,7 @@ async function buscarHistorial(pagina = 1) {
   totalHistorial = data.total;
   sumaDescuentosHistorial = Number(data.suma_descuentos);
   document.getElementById("tablaHistorial").innerHTML = `
-    <p class="chico">Total del período: <strong>$${fmt(sumaDescuentosHistorial)}</strong> (${fmt(totalHistorial)} descuentos)</p>
+    <p class="chico">Total del período: <strong>$${fmt(sumaDescuentosHistorial)}</strong> en descuentos (${fmt(totalHistorial)} registros; el total no suma los traspasos internos)</p>
     <table>
       <tr><th>Fecha</th><th>Hora</th><th>Sucursal</th><th>Bombero</th><th>RUT</th><th>Nombre socio</th><th>Combustible</th><th>Litros</th><th>Precio/L</th><th>Descuento</th><th>Total cobrado</th></tr>
       ${rows.map((t) => {
@@ -636,7 +636,7 @@ async function exportarHistorialCSV() {
   };
 
   const lineasFiltros = resumenFiltrosHistorial().map(([etiqueta, valor]) => [etiqueta, valor].map(escaparCsv).join(";"));
-  const lineaTotal = ["Total del período", `$${fmt(data.suma_descuentos)} (${filasHistorial.length} descuentos)`].map(escaparCsv).join(";");
+  const lineaTotal = ["Total del período", `$${fmt(data.suma_descuentos)} en descuentos (${filasHistorial.length} registros; el total no suma los traspasos internos)`].map(escaparCsv).join(";");
 
   const filas = filasHistorial.map((t) => {
     const fechaHora = new Date(t.creado_en);
