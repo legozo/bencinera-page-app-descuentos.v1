@@ -134,22 +134,32 @@ router.put("/:id", requiereRol("admin"), async (req, res) => {
     return res.status(403).json({ error: "Este socio es de uso interno para traspasos de combustible y no se puede modificar desde el panel." });
   }
   const { nombre, apellido, tipo_socio_id, activo, telefono, email, direccion } = req.body || {};
-  // Nota: antes esto usaba `apellido || null` (sin COALESCE), lo que borraba apellido/telefono/email
-  // cada vez que solo se mandaba { activo } (ej. al activar/desactivar). Se corrigió a COALESCE
-  // para que un campo no enviado conserve su valor actual.
-  const nombreNormalizado = nombre ? capitalizarNombre(nombre) : nombre;
-  const apellidoNormalizado = apellido ? capitalizarNombre(apellido) : apellido;
+
+  // UPDATE dinámico: solo toca los campos que VIENEN en el body. Antes se usaba COALESCE con
+  // `valor || null`, que no distinguía "campo no enviado" (conservar) de "campo enviado vacío"
+  // (borrar) — al borrar el teléfono/dirección en el formulario y guardar, el valor viejo se
+  // conservaba en silencio. Ahora un campo opcional enviado como "" queda NULL de verdad.
+  const sets = [];
+  const valores = [];
+  const set = (campo, valor) => {
+    valores.push(valor);
+    sets.push(`${campo} = $${valores.length}`);
+  };
+  // Obligatorios: solo se actualizan si traen contenido (un "" no puede vaciarlos).
+  if (nombre) set("nombre", capitalizarNombre(nombre));
+  if (tipo_socio_id) set("tipo_socio_id", tipo_socio_id);
+  if (activo === true || activo === false) set("activo", activo);
+  // Opcionales: si vienen (aunque sea vacíos) se actualizan; "" los deja en NULL.
+  if (apellido !== undefined) set("apellido", apellido ? capitalizarNombre(apellido) : null);
+  if (telefono !== undefined) set("telefono", telefono || null);
+  if (email !== undefined) set("email", email || null);
+  if (direccion !== undefined) set("direccion", direccion || null);
+
+  if (sets.length === 0) return res.status(400).json({ error: "No hay campos para actualizar." });
+  valores.push(req.params.id);
   const { rows } = await db.query(
-    `UPDATE socios SET
-       nombre = COALESCE($1, nombre),
-       apellido = COALESCE($2, apellido),
-       tipo_socio_id = COALESCE($3, tipo_socio_id),
-       activo = COALESCE($4, activo),
-       telefono = COALESCE($5, telefono),
-       email = COALESCE($6, email),
-       direccion = COALESCE($7, direccion)
-     WHERE id = $8 RETURNING *`,
-    [nombreNormalizado, apellidoNormalizado || null, tipo_socio_id, activo, telefono || null, email || null, direccion || null, req.params.id]
+    `UPDATE socios SET ${sets.join(", ")} WHERE id = $${valores.length} RETURNING *`,
+    valores
   );
   if (rows.length === 0) return res.status(404).json({ error: "Socio no encontrado." });
   res.json(rows[0]);

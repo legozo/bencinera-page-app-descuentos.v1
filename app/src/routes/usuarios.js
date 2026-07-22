@@ -78,34 +78,38 @@ router.put("/:id", async (req, res) => {
   if (password && password.length < 4) {
     return res.status(400).json({ error: "La clave debe tener al menos 4 caracteres." });
   }
-  let hash = null;
-  if (password) hash = await bcrypt.hash(password, 10);
-  const nombreNormalizado = nombre ? capitalizarNombre(nombre) : nombre;
-  const apellidoNormalizado = apellido ? capitalizarNombre(apellido) : apellido;
 
-  let rutCuerpo = null;
-  let rutDv = null;
+  // UPDATE dinámico: solo toca los campos que VIENEN en el body (mismo cambio que en
+  // PUT /socios/:id — el COALESCE anterior impedía vaciar apellido/teléfono: al borrarlos
+  // en el formulario y guardar, el valor viejo se conservaba en silencio).
+  const sets = [];
+  const valores = [];
+  const set = (campo, valor) => {
+    valores.push(valor);
+    sets.push(`${campo} = $${valores.length}`);
+  };
+  if (nombre) set("nombre", capitalizarNombre(nombre));
+  if (sucursal_id) set("sucursal_id", sucursal_id);
+  if (activo === true || activo === false) set("activo", activo);
+  if (password) set("password_hash", await bcrypt.hash(password, 10));
+  if (apellido !== undefined) set("apellido", apellido ? capitalizarNombre(apellido) : null);
+  if (telefono !== undefined) set("telefono", telefono || null);
   if (rut) {
     const { valido, cuerpo, dv } = validarRut(rut);
     if (!valido) return res.status(400).json({ error: "RUT inválido." });
-    rutCuerpo = cuerpo;
-    rutDv = dv;
+    set("rut", cuerpo);
+    set("dv", dv);
   }
 
+  if (sets.length === 0) return res.status(400).json({ error: "No hay campos para actualizar." });
+
   try {
+    valores.push(req.params.id);
     const { rows } = await db.query(
-      `UPDATE usuarios SET
-         nombre = COALESCE($1, nombre),
-         apellido = COALESCE($2, apellido),
-         sucursal_id = COALESCE($3, sucursal_id),
-         activo = COALESCE($4, activo),
-         password_hash = COALESCE($5, password_hash),
-         telefono = COALESCE($6, telefono),
-         rut = COALESCE($7, rut),
-         dv = COALESCE($8, dv)
-       WHERE id = $9
+      `UPDATE usuarios SET ${sets.join(", ")}
+       WHERE id = $${valores.length}
        RETURNING id, nombre, apellido, usuario, rut, dv, rol, sucursal_id, activo, telefono`,
-      [nombreNormalizado, apellidoNormalizado || null, sucursal_id, activo, hash, telefono || null, rutCuerpo, rutDv, req.params.id]
+      valores
     );
     if (rows.length === 0) return res.status(404).json({ error: "Usuario no encontrado." });
     res.json(rows[0]);
