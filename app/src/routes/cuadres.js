@@ -99,7 +99,7 @@ function traeDescuentoManual(valor) {
 
 /** Arma el WHERE compartido por el historial y los reportes de cuadres (mismos filtros en ambos). */
 function filtroCuadres(query) {
-  const { desde, hasta, sucursal_id } = query;
+  const { desde, hasta, sucursal_id, turno } = query;
   const condiciones = [];
   const valores = [];
   if (desde) {
@@ -113,6 +113,10 @@ function filtroCuadres(query) {
   if (sucursal_id) {
     valores.push(sucursal_id);
     condiciones.push(`c.sucursal_id = $${valores.length}`);
+  }
+  if (turno) {
+    valores.push(turno);
+    condiciones.push(`c.turno = $${valores.length}`);
   }
   return { where: condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "", valores };
 }

@@ -2074,6 +2074,7 @@ async function cargarHistorialCuadres() {
         <div><label>Desde</label><input type="date" id="hcDesde"></div>
         <div><label>Hasta</label><input type="date" id="hcHasta"></div>
         <div><label>Sucursal</label><select id="hcSucursal"><option value="">Todas</option>${opcionesSucursal}</select></div>
+        <div><label>Turno</label><select id="hcTurno"><option value="">Todos</option><option value="tarde">${NOMBRE_TURNO.tarde}</option><option value="manana">${NOMBRE_TURNO.manana}</option></select></div>
       </div>
       <button class="primario" style="margin-top:10px;" onclick="buscarHistorialCuadres()">Filtrar</button>
       <button class="limpiar-filtros" style="margin-top:10px;" onclick="limpiarFiltrosHistorialCuadres()">✕ Limpiar filtros</button>
@@ -2087,6 +2088,7 @@ function limpiarFiltrosHistorialCuadres() {
   document.getElementById("hcDesde").value = "";
   document.getElementById("hcHasta").value = "";
   document.getElementById("hcSucursal").value = "";
+  document.getElementById("hcTurno").value = "";
   buscarHistorialCuadres();
 }
 
@@ -2094,10 +2096,12 @@ async function buscarHistorialCuadres() {
   const desde = document.getElementById("hcDesde").value;
   const hasta = document.getElementById("hcHasta").value;
   const sucursalId = document.getElementById("hcSucursal").value;
+  const turno = document.getElementById("hcTurno").value;
   const params = new URLSearchParams();
   if (desde) params.set("desde", desde);
   if (hasta) params.set("hasta", hasta);
   if (sucursalId) params.set("sucursal_id", sucursalId);
+  if (turno) params.set("turno", turno);
 
   const cont = document.getElementById("tablaHistorialCuadres");
   cont.innerHTML = skeletonLineas(6);
@@ -2172,6 +2176,7 @@ function resumenFiltrosHistorialCuadres() {
   const desde = document.getElementById("hcDesde").value;
   const hasta = document.getElementById("hcHasta").value;
   const sucursalId = document.getElementById("hcSucursal").value;
+  const turno = document.getElementById("hcTurno").value;
   const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
   const periodo = desde || hasta
     ? `${desde || "el inicio"} a ${hasta || "hoy"}`
@@ -2179,6 +2184,7 @@ function resumenFiltrosHistorialCuadres() {
   return [
     ["Período", periodo],
     ["Sucursal", sucursal ? sucursal.nombre : "(todas)"],
+    ["Turno", turno ? NOMBRE_TURNO[turno] : "(todos)"],
   ];
 }
 
@@ -2251,6 +2257,7 @@ async function cargarReportesCuadres() {
         <div><label>Desde</label><input type="date" id="rcDesde" value="${hoy}"></div>
         <div><label>Hasta</label><input type="date" id="rcHasta" value="${hoy}"></div>
         <div><label>Sucursal</label><select id="rcSucursal"><option value="">Todas</option>${opcionesSucursal}</select></div>
+        <div><label>Turno</label><select id="rcTurno"><option value="">Todos</option><option value="tarde">${NOMBRE_TURNO.tarde}</option><option value="manana">${NOMBRE_TURNO.manana}</option></select></div>
       </div>
       <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
         <button class="secundario" onclick="filtroReporteCuadresRapido('hoy')">Hoy</button>
@@ -2268,6 +2275,7 @@ async function cargarReportesCuadres() {
 
 function limpiarFiltrosReportesCuadres() {
   document.getElementById("rcSucursal").value = "";
+  document.getElementById("rcTurno").value = "";
   filtroReporteCuadresRapido("hoy");
 }
 
@@ -2282,10 +2290,12 @@ async function buscarReportesCuadres() {
   const desde = document.getElementById("rcDesde").value;
   const hasta = document.getElementById("rcHasta").value;
   const sucursalId = document.getElementById("rcSucursal").value;
+  const turno = document.getElementById("rcTurno").value;
   const params = new URLSearchParams();
   if (desde) params.set("desde", desde);
   if (hasta) params.set("hasta", hasta);
   if (sucursalId) params.set("sucursal_id", sucursalId);
+  if (turno) params.set("turno", turno);
 
   const cont = document.getElementById("resultadoReportesCuadres");
   cont.innerHTML = `<div class="tarjeta">${skeletonLineas(4)}</div>`;
@@ -2294,11 +2304,12 @@ async function buscarReportesCuadres() {
   const rangoTexto = desde || hasta ? `Período: ${desde || "el inicio"} a ${hasta || "hoy"}` : "Todo el histórico";
   const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
   const sucursalTexto = sucursal ? sucursal.nombre : "Todas";
+  const turnoTexto = turno ? NOMBRE_TURNO[turno] : "Todos";
   const diferenciaNeta = Number(data.diferencia_neta);
   // Misma "Suma (T+E+D)" que muestra cada fila del Historial de cuadres, pero acumulada
   // sobre todos los turnos del período (el backend ya manda los tres totales por separado).
   const sumaTED = Number(data.tarjeta_total) + Number(data.efectivo_total) + Number(data.descuentos_total);
-  ultimoReporteCuadres = { ...data, rangoTexto, sucursalTexto };
+  ultimoReporteCuadres = { ...data, rangoTexto, sucursalTexto, turnoTexto };
   const litrosCombustible = litrosPorCombustible(data.desglose);
   const montoCombustible = montoPorCombustible(data.desglose);
   const litrosCombustibleHtml = litrosCombustible.length
@@ -2310,7 +2321,7 @@ async function buscarReportesCuadres() {
 
   cont.innerHTML = `
     <div class="tarjeta">
-      <p class="chico">${rangoTexto} · Sucursal: ${escaparHtml(sucursalTexto)}</p>
+      <p class="chico">${rangoTexto} · Sucursal: ${escaparHtml(sucursalTexto)} · Turno: ${escaparHtml(turnoTexto)}</p>
       <h3>Totales</h3>
       <div class="grid-2" style="margin-top:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Turnos cerrados</div><div style="font-size:17px; font-weight:600;">${data.turnos_cerrados}</div></div>
@@ -2370,13 +2381,14 @@ function exportarReporteCuadresCSV() {
   };
   const filaCsv = (arr) => arr.map(escaparCsv).join(";");
 
-  const { turnos_cerrados, diferencia_neta, diferencia_absoluta, litros_precio_total, tarjeta_total, efectivo_total, descuentos_total, litros_totales, desglose, rangoTexto, sucursalTexto } = ultimoReporteCuadres;
+  const { turnos_cerrados, diferencia_neta, diferencia_absoluta, litros_precio_total, tarjeta_total, efectivo_total, descuentos_total, litros_totales, desglose, rangoTexto, sucursalTexto, turnoTexto } = ultimoReporteCuadres;
   const litrosCombustible = litrosPorCombustible(desglose);
   const montoCombustible = montoPorCombustible(desglose);
 
   const lineas = [];
   lineas.push(filaCsv([rangoTexto]));
   lineas.push(filaCsv(["Sucursal", sucursalTexto]));
+  lineas.push(filaCsv(["Turno", turnoTexto]));
   lineas.push("");
   lineas.push(filaCsv(["Totales"]));
   lineas.push(filaCsv(["Turnos cerrados", "Litros totales", "Diferencia neta", "Diferencia absoluta", "Precio x litro", "Tarjeta", "Efectivo", "Descuentos", "Suma (T+E+D)"]));
