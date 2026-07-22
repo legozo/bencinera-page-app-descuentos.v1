@@ -2294,6 +2294,9 @@ async function buscarReportesCuadres() {
   const sucursal = sucursalId ? catalogos.sucursales.find((s) => s.id === Number(sucursalId)) : null;
   const sucursalTexto = sucursal ? sucursal.nombre : "Todas";
   const diferenciaNeta = Number(data.diferencia_neta);
+  // Misma "Suma (T+E+D)" que muestra cada fila del Historial de cuadres, pero acumulada
+  // sobre todos los turnos del período (el backend ya manda los tres totales por separado).
+  const sumaTED = Number(data.tarjeta_total) + Number(data.efectivo_total) + Number(data.descuentos_total);
   ultimoReporteCuadres = { ...data, rangoTexto, sucursalTexto };
   const litrosCombustible = litrosPorCombustible(data.desglose);
   const montoCombustible = montoPorCombustible(data.desglose);
@@ -2317,6 +2320,7 @@ async function buscarReportesCuadres() {
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Tarjeta</div><div style="font-size:17px; font-weight:600;">$${fmt(data.tarjeta_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo</div><div style="font-size:17px; font-weight:600;">$${fmt(data.efectivo_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos</div><div style="font-size:17px; font-weight:600;">$${fmt(data.descuentos_total)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Suma (T+E+D)</div><div style="font-size:17px; font-weight:600;">$${fmt(sumaTED)}</div></div>
       </div>
       <p class="chico" style="margin-top:10px;">La neta es el impacto real en la caja del período. La absoluta suma el error de cada turno sin cancelar positivos con negativos. Precio × litro es el valor esperado según catálogo; Tarjeta + Efectivo + Descuentos es lo que realmente cuadró.</p>
       <h3 style="margin-top:16px;">Litros por combustible</h3>
@@ -2361,8 +2365,8 @@ function exportarReporteCuadresCSV() {
   lineas.push(filaCsv(["Sucursal", sucursalTexto]));
   lineas.push("");
   lineas.push(filaCsv(["Totales"]));
-  lineas.push(filaCsv(["Turnos cerrados", "Litros totales", "Diferencia neta", "Diferencia absoluta", "Precio x litro", "Tarjeta", "Efectivo", "Descuentos"]));
-  lineas.push(filaCsv([turnos_cerrados, litros_totales, diferencia_neta, diferencia_absoluta, litros_precio_total, tarjeta_total, efectivo_total, descuentos_total]));
+  lineas.push(filaCsv(["Turnos cerrados", "Litros totales", "Diferencia neta", "Diferencia absoluta", "Precio x litro", "Tarjeta", "Efectivo", "Descuentos", "Suma (T+E+D)"]));
+  lineas.push(filaCsv([turnos_cerrados, litros_totales, diferencia_neta, diferencia_absoluta, litros_precio_total, tarjeta_total, efectivo_total, descuentos_total, Number(tarjeta_total) + Number(efectivo_total) + Number(descuentos_total)]));
   lineas.push("");
   lineas.push(filaCsv(["Litros por combustible"]));
   lineas.push(filaCsv(["Combustible", "Litros"]));
