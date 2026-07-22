@@ -163,6 +163,14 @@ function recalcular() {
     return;
   }
 
+  // Mismo chequeo que hace el servidor al registrar (ver registrarVenta en transacciones.js):
+  // un descuento mayor al precio dejaría un monto a cobrar negativo — se avisa acá antes de
+  // que el bombero intente registrar y se tope con el error.
+  if (descuento > precio) {
+    calculoDiv.innerHTML = `<span style="color:var(--rojo);">El descuento configurado ($${descuento.toLocaleString("es-CL")}/L) es mayor que el precio ($${precio.toLocaleString("es-CL")}/L). Avisa al administrador para revisar la regla de descuento antes de registrar.</span>`;
+    return;
+  }
+
   const descuentoTotal = redondearA10Cliente(descuento * litros);
   const montoTotal = redondearA10Cliente((precio - descuento) * litros);
   calculoDiv.innerHTML = `

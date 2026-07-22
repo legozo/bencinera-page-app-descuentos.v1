@@ -102,6 +102,16 @@ async function registrarVenta({ sucursalId, usuarioId, rut, combustibleId, litro
       [socio.tipo_socio_id, combustibleId, fecha]
     );
     descuentoPorLitro = reglaRes.rows[0] ? Number(reglaRes.rows[0].descuento_clp_litro) : 0;
+    // Una regla mal tecleada (ej. descuento $990 con precio $900) registraría la venta con
+    // monto a cobrar NEGATIVO en silencio. Se rechaza acá; el socio interno no pasa por esta
+    // rama (su descuento es exactamente el precio, monto $0, y eso sí es válido).
+    if (descuentoPorLitro > precioLitro) {
+      return {
+        ok: false,
+        status: 400,
+        error: `El descuento configurado ($${descuentoPorLitro}/L) es mayor que el precio ($${precioLitro}/L) — la venta quedaría con monto negativo. Pide al administrador revisar la regla de descuento.`,
+      };
+    }
   }
 
   // Antes se redondeaba a centavos (Math.round(x*100)/100), pero el peso chileno no tiene
