@@ -13,6 +13,19 @@ function redondearA10Cliente(valor) {
   return Math.round(valor / 10) * 10;
 }
 
+/** Misma limpieza en vivo que usa el Cuadre de caja en admin.js (ver sanearNumero allá):
+ * en varios teclados/navegadores de Android, type="number" con decimales deja el valor que
+ * lee JavaScript desincronizado del que se ve en pantalla — por eso el campo de litros usa
+ * type="text" inputmode="decimal" y se limpia acá (solo dígitos y un único punto decimal). */
+function sanearNumero(input) {
+  let valor = input.value.replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  const primerPunto = valor.indexOf(".");
+  if (primerPunto !== -1) {
+    valor = valor.slice(0, primerPunto + 1) + valor.slice(primerPunto + 1).replace(/\./g, "");
+  }
+  if (valor !== input.value) input.value = valor;
+}
+
 // ---------- Estado de conexión y sincronización ----------
 function renderizarEstado() {
   const div = document.getElementById("estadoConexion");
@@ -123,7 +136,7 @@ function renderizarResultado(data) {
     <label for="combustible">Tipo de combustible</label>
     <select id="combustible" onchange="recalcular()">${opciones}</select>
     <label for="litros">Litros cargados</label>
-    <input id="litros" type="number" min="0.01" step="0.01" oninput="recalcular()" placeholder="0.00">
+    <input id="litros" type="text" inputmode="decimal" autocomplete="off" oninput="sanearNumero(this); recalcular();" placeholder="0.00">
     <div id="calculo" class="chico" style="margin-top:10px;"></div>
     <button class="primario" style="width:100%;" onclick="registrarTransaccion()">Registrar</button>
     <div id="errorRegistro" class="mensaje-error oculto"></div>
@@ -141,7 +154,9 @@ function recalcular() {
   const sinPrecio = !precioTexto;
   const descuento = Number(select.selectedOptions[0]?.dataset.descuento || 0);
   const precio = Number(precioTexto || 0);
-  const litros = Number(litrosInput.value || 0);
+  // "|| 0" DESPUÉS de Number(): un "." solo (posible ahora que el campo es de texto) da NaN
+  // y debe tratarse como 0, no colarse en el cálculo.
+  const litros = Number(litrosInput.value) || 0;
 
   if (sinPrecio) {
     calculoDiv.innerHTML = `<span style="color:var(--rojo);">Este combustible no tiene precio configurado en tu sucursal. Avisa al administrador antes de registrar la venta.</span>`;
