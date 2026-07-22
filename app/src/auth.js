@@ -31,11 +31,14 @@ async function requiereAuth(req, res, next) {
   // El token dura 12h, pero desactivar (o eliminar) un usuario tiene que cortarle el acceso
   // de inmediato, no cuando el token expire — por eso se reconsulta su estado en cada
   // petición en vez de confiar solo en la firma.
-  const { rows } = await db.query("SELECT activo FROM usuarios WHERE id = $1", [payload.id]);
+  const { rows } = await db.query("SELECT activo, rol, sucursal_id FROM usuarios WHERE id = $1", [payload.id]);
   if (!rows[0] || !rows[0].activo) {
     return res.status(401).json({ error: "Tu cuenta fue desactivada. Habla con el administrador." });
   }
-  req.usuario = payload;
+  // Rol y sucursal se toman frescos de la base, no del token: si a un bombero lo cambian de
+  // sucursal a mitad de turno, sus ventas deben quedar en la sucursal nueva de inmediato —
+  // con el valor del token quedaban en la antigua (y con sus precios) hasta por 12h.
+  req.usuario = { ...payload, rol: rows[0].rol, sucursal_id: rows[0].sucursal_id };
   next();
 }
 
