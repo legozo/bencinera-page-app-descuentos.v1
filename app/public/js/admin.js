@@ -1373,6 +1373,12 @@ const NOMBRE_TURNO = { manana: "Mañana (20:00 - 08:00)", tarde: "Tarde (08:00 -
 // la vez (el del turno que se esté editando); cambiar a otro sucursal/fecha/turno sin haber
 // cerrado el anterior simplemente lo reemplaza.
 const CLAVE_BORRADOR_CUADRE = "bencinera_cuadre_borrador";
+// true solo después de que el admin haya tecleado/marcado algo en el cuadre actual. Los
+// precios y la tarjeta vienen PRECARGADOS, así que "el formulario tiene valores" no sirve
+// para saber si hay algo que conservar: sin este flag, con solo abrir la pestaña y cambiar
+// de app ya quedaba guardado un borrador fantasma (visibilitychange/pagehide), y la próxima
+// visita saltaba a ese turno en vez del sugerido.
+let cuadreTocado = false;
 
 /** Lee del DOM lo tecleado y lo guarda, salvo que el cuadre sea de solo lectura (nada que
  * conservar) o esté completamente vacío (evita dejar un borrador fantasma sin datos).
@@ -1380,6 +1386,10 @@ const CLAVE_BORRADOR_CUADRE = "bencinera_cuadre_borrador";
  * Safari iOS en navegación privada) setItem lanza una excepción, y sin capturarla rompía en
  * silencio la cadena del oninput y no se guardaba nada. */
 function guardarBorradorCuadre() {
+  // Todas las llamadas directas a esta función vienen de oninput/onchange del propio
+  // formulario (interacción real del admin); los listeners de visibilidad de abajo son los
+  // únicos que la llaman condicionada a este flag.
+  cuadreTocado = true;
   try {
     if (!cuadreInfo || (cuadreInfo.existe && !cuadreInfo.editable)) return;
     const sucursalId = document.getElementById("cuadreSucursal")?.value;
@@ -1437,9 +1447,11 @@ function borrarBorradorCuadre() {
 // esperar un último oninput. guardarBorradorCuadre ya no hace nada si no se está en un cuadre
 // editable, así que es seguro llamarlo siempre.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") guardarBorradorCuadre();
+  if (document.visibilityState === "hidden" && cuadreTocado) guardarBorradorCuadre();
 });
-window.addEventListener("pagehide", guardarBorradorCuadre);
+window.addEventListener("pagehide", () => {
+  if (cuadreTocado) guardarBorradorCuadre();
+});
 
 /** El último turno de 12h que ya terminó a esta hora — sugerencia inicial para no tener que
  * pensar cuál es, aunque se puede elegir cualquier otra fecha/turno igual. */
@@ -1563,6 +1575,10 @@ async function cargarTurnoCuadre(preservar) {
   }));
 
   renderFormularioCuadre(valoresPrevios);
+  // Se parte "sin tocar" en cada carga de turno, salvo que se hayan restaurado valores (un
+  // borrador previo o lo preservado al editar máquinas): en ese caso lo mostrado ya es
+  // trabajo del admin y la red de seguridad de visibilidad debe seguir guardándolo.
+  cuadreTocado = !!valoresPrevios;
 }
 
 function renderListaMaquinas() {
