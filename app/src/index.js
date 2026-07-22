@@ -21,6 +21,11 @@ const cuadresRoutes = require("./routes/cuadres");
 
 const app = express();
 
+// La app siempre corre detrás de un único reverse proxy (Caddy) que agrega X-Forwarded-For.
+// Sin esto, req.ip era siempre la IP interna del proxy para TODOS los visitantes, y el
+// límite de intentos de login por usuario+IP (routes/auth.js) no distinguía IPs reales.
+app.set("trust proxy", 1);
+
 // Headers de seguridad (helmet). Se usan los de bajo riesgo que NO rompen nada de esta app:
 // HSTS (fuerza HTTPS), X-Content-Type-Options (nosniff), X-Frame-Options, Referrer-Policy, y
 // oculta X-Powered-By. El CSP se configura a propósito de forma PARCIAL: solo directivas
