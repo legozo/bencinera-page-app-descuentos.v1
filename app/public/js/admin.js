@@ -178,6 +178,7 @@ async function cargarReportes() {
         <button class="secundario" onclick="filtroReporteRapido('todo')">Todo (histórico)</button>
         <button class="primario" style="margin-top:0;" onclick="buscarReportes()">Filtrar</button>
         <button class="limpiar-filtros" onclick="limpiarFiltrosReportes()">✕ Limpiar filtros</button>
+        <button class="exportar" onclick="exportarReporteCSV()">📥 Exportar a Excel</button>
       </div>
     </div>
     <div id="resultadoReportes"></div>`;
@@ -314,7 +315,6 @@ async function buscarReportes() {
       ${litrosCombustibleHtml}
       <h3 style="margin-top:16px;">Descuento por combustible</h3>
       ${descuentoCombustibleHtml}
-      <button class="exportar" style="margin-top:10px;" onclick="exportarReporteCSV()">📥 Exportar a Excel</button>
     </div>
     <div class="tarjeta">
       <h3>Detalle por sucursal y combustible</h3>
@@ -420,7 +420,7 @@ async function cargarHistorial() {
         <div><label>Precio/L mínimo</label><input id="filtroPrecioMin" type="number" step="0.01" placeholder="$"></div>
         <div><label>Precio/L máximo</label><input id="filtroPrecioMax" type="number" step="0.01" placeholder="$"></div>
       </div>
-      <button class="secundario" style="margin-top:10px;" onclick="buscarHistorial()">Filtrar</button>
+      <button class="primario" style="margin-top:10px;" onclick="buscarHistorial()">Filtrar</button>
       <button class="limpiar-filtros" style="margin-top:10px;" onclick="limpiarFiltrosHistorial()">✕ Limpiar filtros</button>
       <button class="exportar" style="margin-top:10px;" onclick="exportarHistorialCSV()">📥 Exportar a Excel</button>
     </div>
@@ -2075,7 +2075,7 @@ async function cargarHistorialCuadres() {
         <div><label>Hasta</label><input type="date" id="hcHasta"></div>
         <div><label>Sucursal</label><select id="hcSucursal"><option value="">Todas</option>${opcionesSucursal}</select></div>
       </div>
-      <button class="secundario" style="margin-top:10px;" onclick="buscarHistorialCuadres()">Filtrar</button>
+      <button class="primario" style="margin-top:10px;" onclick="buscarHistorialCuadres()">Filtrar</button>
       <button class="limpiar-filtros" style="margin-top:10px;" onclick="limpiarFiltrosHistorialCuadres()">✕ Limpiar filtros</button>
       <button class="exportar" style="margin-top:10px;" onclick="exportarHistorialCuadresCSV()">📥 Exportar a Excel</button>
     </div>
@@ -2442,7 +2442,7 @@ async function cargarDescargas() {
         <div><label>Sucursal</label><select id="descargaFiltroSucursal" onchange="actualizarBomberosFiltroDescargas()"><option value="">Todas</option>${opcionesSucursal}</select></div>
         <div><label>Bombero</label><select id="descargaFiltroBombero"><option value="">Todos</option></select></div>
       </div>
-      <button class="secundario" style="margin-top:10px;" onclick="buscarDescargas()">Filtrar</button>
+      <button class="primario" style="margin-top:10px;" onclick="buscarDescargas()">Filtrar</button>
       <button class="limpiar-filtros" style="margin-top:10px;" onclick="limpiarFiltrosDescargas()">✕ Limpiar filtros</button>
       <button class="exportar" style="margin-top:10px;" onclick="exportarDescargasCSV()">📥 Exportar a Excel</button>
       <div id="tablaDescargas" style="margin-top:10px;">${skeletonLineas(5)}</div>
