@@ -130,6 +130,40 @@ button.secundario {
 button.secundario:hover { background: #fbf3e2; }
 button.secundario:active { transform: scale(0.98); }
 
+/* Distinto del resto (que son todos dorados) para que se reconozca de un vistazo entre
+   los botones de filtro, sin importar en qué pestaña esté. */
+button.exportar {
+  background: var(--verde);
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .15s ease, transform .05s ease;
+}
+button.exportar:hover { background: #146e48; }
+button.exportar:active { transform: scale(0.98); }
+
+/* Gris neutro (no dorado ni verde) para no competir con "Filtrar" ni "Exportar a Excel" —
+   es una acción de "deshacer filtros", no una acción principal. */
+button.limpiar-filtros {
+  background: white;
+  color: #5f5e5a;
+  border: 1px solid #9a9a95;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .15s ease, transform .05s ease;
+}
+button.limpiar-filtros:hover { background: #f1f1ef; }
+button.limpiar-filtros:active { transform: scale(0.98); }
+
 button:focus-visible {
   outline: 2px solid var(--azul);
   outline-offset: 2px;

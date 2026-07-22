@@ -177,7 +177,7 @@ async function cargarReportes() {
         <button class="secundario" onclick="filtroReporteRapido('mes')">Este mes</button>
         <button class="secundario" onclick="filtroReporteRapido('todo')">Todo (histórico)</button>
         <button class="primario" style="margin-top:0;" onclick="buscarReportes()">Filtrar</button>
-        <button class="secundario" onclick="limpiarFiltrosReportes()">Limpiar filtros</button>
+        <button class="limpiar-filtros" onclick="limpiarFiltrosReportes()">✕ Limpiar filtros</button>
       </div>
     </div>
     <div id="resultadoReportes"></div>`;
@@ -314,7 +314,7 @@ async function buscarReportes() {
       ${litrosCombustibleHtml}
       <h3 style="margin-top:16px;">Descuento por combustible</h3>
       ${descuentoCombustibleHtml}
-      <button class="secundario" style="margin-top:10px;" onclick="exportarReporteCSV()">Exportar a Excel</button>
+      <button class="exportar" style="margin-top:10px;" onclick="exportarReporteCSV()">📥 Exportar a Excel</button>
     </div>
     <div class="tarjeta">
       <h3>Detalle por sucursal y combustible</h3>
@@ -421,8 +421,8 @@ async function cargarHistorial() {
         <div><label>Precio/L máximo</label><input id="filtroPrecioMax" type="number" step="0.01" placeholder="$"></div>
       </div>
       <button class="secundario" style="margin-top:10px;" onclick="buscarHistorial()">Filtrar</button>
-      <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosHistorial()">Limpiar filtros</button>
-      <button class="secundario" style="margin-top:10px;" onclick="exportarHistorialCSV()">Exportar a Excel</button>
+      <button class="limpiar-filtros" style="margin-top:10px;" onclick="limpiarFiltrosHistorial()">✕ Limpiar filtros</button>
+      <button class="exportar" style="margin-top:10px;" onclick="exportarHistorialCSV()">📥 Exportar a Excel</button>
     </div>
     <div class="tarjeta">
       <button class="secundario" onclick="toggleFormTraspaso()">+ Registrar traspaso de combustible</button>
@@ -2076,8 +2076,8 @@ async function cargarHistorialCuadres() {
         <div><label>Sucursal</label><select id="hcSucursal"><option value="">Todas</option>${opcionesSucursal}</select></div>
       </div>
       <button class="secundario" style="margin-top:10px;" onclick="buscarHistorialCuadres()">Filtrar</button>
-      <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosHistorialCuadres()">Limpiar filtros</button>
-      <button class="secundario" style="margin-top:10px;" onclick="exportarHistorialCuadresCSV()">Exportar a Excel</button>
+      <button class="limpiar-filtros" style="margin-top:10px;" onclick="limpiarFiltrosHistorialCuadres()">✕ Limpiar filtros</button>
+      <button class="exportar" style="margin-top:10px;" onclick="exportarHistorialCuadresCSV()">📥 Exportar a Excel</button>
     </div>
     <div class="tarjeta"><div id="tablaHistorialCuadres">${skeletonLineas(6)}</div></div>`;
   buscarHistorialCuadres();
@@ -2258,7 +2258,8 @@ async function cargarReportesCuadres() {
         <button class="secundario" onclick="filtroReporteCuadresRapido('mes')">Este mes</button>
         <button class="secundario" onclick="filtroReporteCuadresRapido('todo')">Todo (histórico)</button>
         <button class="primario" style="margin-top:0;" onclick="buscarReportesCuadres()">Filtrar</button>
-        <button class="secundario" onclick="limpiarFiltrosReportesCuadres()">Limpiar filtros</button>
+        <button class="limpiar-filtros" onclick="limpiarFiltrosReportesCuadres()">✕ Limpiar filtros</button>
+        <button class="exportar" onclick="exportarReporteCuadresCSV()">📥 Exportar a Excel</button>
       </div>
     </div>
     <div id="resultadoReportesCuadres"></div>`;
@@ -2314,8 +2315,6 @@ async function buscarReportesCuadres() {
       <div class="grid-2" style="margin-top:10px;">
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Turnos cerrados</div><div style="font-size:17px; font-weight:600;">${data.turnos_cerrados}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Litros totales</div><div style="font-size:17px; font-weight:600;">${fmt(data.litros_totales)} L</div></div>
-        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia neta (con signo)</div><div style="font-size:17px; font-weight:600; color:${colorDiferencia(diferenciaNeta)};">$${fmt(diferenciaNeta)}</div></div>
-        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia absoluta acumulada</div><div style="font-size:17px; font-weight:600;">$${fmt(data.diferencia_absoluta)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Tarjeta</div><div style="font-size:17px; font-weight:600;">$${fmt(data.tarjeta_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo</div><div style="font-size:17px; font-weight:600;">$${fmt(data.efectivo_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos</div><div style="font-size:17px; font-weight:600;">$${fmt(data.descuentos_total)}</div></div>
@@ -2334,12 +2333,15 @@ async function buscarReportesCuadres() {
           <span style="font-size:17px; font-weight:600; color:${colorDiferencia(diferenciaNeta)};">$${fmt(sumaTED)}</span>
         </div>
       </div>
+      <div class="grid-2" style="margin-top:12px;">
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia neta (con signo)</div><div style="font-size:17px; font-weight:600; color:${colorDiferencia(diferenciaNeta)};">$${fmt(diferenciaNeta)}</div></div>
+        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia absoluta acumulada</div><div style="font-size:17px; font-weight:600;">$${fmt(data.diferencia_absoluta)}</div></div>
+      </div>
       <p class="chico" style="margin-top:10px;">La neta es el impacto real en la caja del período. La absoluta suma el error de cada turno sin cancelar positivos con negativos. Precio × litro es el valor esperado según catálogo; Tarjeta + Efectivo + Descuentos es lo que realmente cuadró.</p>
       <h3 style="margin-top:16px;">Litros por combustible</h3>
       ${litrosCombustibleHtml}
       <h3 style="margin-top:16px;">Total por combustible</h3>
       ${montoCombustibleHtml}
-      <button class="secundario" style="margin-top:10px;" onclick="exportarReporteCuadresCSV()">Exportar a Excel</button>
     </div>
     <div class="tarjeta">
       <h3>Por sucursal y combustible</h3>
@@ -2441,8 +2443,8 @@ async function cargarDescargas() {
         <div><label>Bombero</label><select id="descargaFiltroBombero"><option value="">Todos</option></select></div>
       </div>
       <button class="secundario" style="margin-top:10px;" onclick="buscarDescargas()">Filtrar</button>
-      <button class="secundario" style="margin-top:10px;" onclick="limpiarFiltrosDescargas()">Limpiar filtros</button>
-      <button class="secundario" style="margin-top:10px;" onclick="exportarDescargasCSV()">Exportar a Excel</button>
+      <button class="limpiar-filtros" style="margin-top:10px;" onclick="limpiarFiltrosDescargas()">✕ Limpiar filtros</button>
+      <button class="exportar" style="margin-top:10px;" onclick="exportarDescargasCSV()">📥 Exportar a Excel</button>
       <div id="tablaDescargas" style="margin-top:10px;">${skeletonLineas(5)}</div>
     </div>`;
   actualizarBomberosDescarga();
