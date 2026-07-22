@@ -2316,11 +2316,23 @@ async function buscarReportesCuadres() {
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Litros totales</div><div style="font-size:17px; font-weight:600;">${fmt(data.litros_totales)} L</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia neta (con signo)</div><div style="font-size:17px; font-weight:600; color:${colorDiferencia(diferenciaNeta)};">$${fmt(diferenciaNeta)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Diferencia absoluta acumulada</div><div style="font-size:17px; font-weight:600;">$${fmt(data.diferencia_absoluta)}</div></div>
-        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Precio × litro</div><div style="font-size:17px; font-weight:600;">$${fmt(data.litros_precio_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Tarjeta</div><div style="font-size:17px; font-weight:600;">$${fmt(data.tarjeta_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Efectivo</div><div style="font-size:17px; font-weight:600;">$${fmt(data.efectivo_total)}</div></div>
         <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Descuentos</div><div style="font-size:17px; font-weight:600;">$${fmt(data.descuentos_total)}</div></div>
-        <div style="background:var(--gris); border-radius:8px; padding:10px 12px;"><div class="chico">Suma (T+E+D)</div><div style="font-size:17px; font-weight:600;">$${fmt(sumaTED)}</div></div>
+      </div>
+      <div style="border:2px solid var(--dorado); border-radius:8px; padding:12px 14px; margin-top:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;">
+          <span class="chico">Precio × litro (esperado)</span>
+          <span style="font-size:17px; font-weight:600;">$${fmt(data.litros_precio_total)}</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin:6px 0; color:var(--dorado);">
+          <span aria-hidden="true">↓</span>
+          <div style="flex:1; border-top:1px dashed var(--borde);"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;">
+          <span class="chico">Suma T+E+D (real)</span>
+          <span style="font-size:17px; font-weight:600; color:${colorDiferencia(diferenciaNeta)};">$${fmt(sumaTED)}</span>
+        </div>
       </div>
       <p class="chico" style="margin-top:10px;">La neta es el impacto real en la caja del período. La absoluta suma el error de cada turno sin cancelar positivos con negativos. Precio × litro es el valor esperado según catálogo; Tarjeta + Efectivo + Descuentos es lo que realmente cuadró.</p>
       <h3 style="margin-top:16px;">Litros por combustible</h3>
